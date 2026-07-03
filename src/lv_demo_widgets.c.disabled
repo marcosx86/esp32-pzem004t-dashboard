@@ -1,0 +1,4 @@
+#include <demos/widgets/lv_demo_widgets.c>
+#include <demos/widgets/assets/img_clothes.c>
+#include <demos/widgets/assets/img_demo_widgets_avatar.c>
+#include <demos/widgets/assets/img_lvgl_logo.c>

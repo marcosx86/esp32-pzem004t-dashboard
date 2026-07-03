@@ -1,0 +1,24 @@
+# HELP pzem_voltage Volts
+# TYPE pzem_voltage gauge
+pzem_voltage 106.20
+# HELP pzem_current Amps
+# TYPE pzem_current gauge
+pzem_current 4.09
+# HELP pzem_power Watts
+# TYPE pzem_power gauge
+pzem_power 413.20
+# HELP pzem_energy kWh
+# TYPE pzem_energy counter
+pzem_energy 255.03
+# HELP pzem_frequency Hz
+# TYPE pzem_frequency gauge
+pzem_frequency 60.00
+# HELP pzem_power_factor Ratio
+# TYPE pzem_power_factor gauge
+pzem_power_factor 0.95
+# HELP dht22_temperature Celsius
+# TYPE dht22_temperature gauge
+dht22_temperature 26.60
+# HELP dht22_humidity Percent
+# TYPE dht22_humidity gauge
+dht22_humidity 84.30
