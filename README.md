@@ -72,6 +72,13 @@ graph TD
 | `RST`  | Unused     | Reset Pin |
 | `INT`  | Unused     | Interrupt Pin |
 
+### Official Board Documentation
+For deeper hardware details, schematics, and component datasheets provided by the vendor (Sunton), refer to the files included in the `docs/` directory:
+* **Board Schematics & Specs**: `ESP32-2432S022 Specifications-EN.pdf`, `ESP32-2432022-LCM-V1.0.png`, `ESP32-2432022-MCU-V1.0.png`, `Dimensions.jpg`
+* **Core Components**: `ESP32-WROOM-32.PDF`, `ESP32-WROOM-1 Pin definition.png`, `25Q32JVSSIQ.PDF` (Flash), `FM8002A.PDF` (Audio Amp)
+* **Touch Controller**: `CST820 数据手册V1.1.pdf` (CST820 Datasheet)
+* **Quick Start**: `Getting started 2.2.pdf`
+
 ---
 
 ## Installation & Setup
