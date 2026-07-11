@@ -44,6 +44,16 @@ LGFX::LGFX(void)
         _panel_instance.config(cfg);
     }
 
+    {
+        auto cfg = _light_instance.config();
+        cfg.pin_bl = 0;
+        cfg.invert = false;
+        cfg.freq = 44100;
+        cfg.pwm_channel = 7;
+        _light_instance.config(cfg);
+        _panel_instance.setLight(&_light_instance);
+    }
+
     setPanel(&_panel_instance);
 }
 

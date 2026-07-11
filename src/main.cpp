@@ -5,16 +5,13 @@
 #include "Touch_Calibrator.h"
 #include "Network_Manager.h"
 #include "Dashboard_UI.h"
+#include <Preferences.h>
 
 #define GFX
 #define TOUCH 
 // Define TOUCH_CALIBRATION to enable manual touchscreen calibration if NVS values are missing on boot
 #define TOUCH_CALIBRATION
 
-// Configure these for your network and target metrics endpoint
-#define WIFI_SSID "hAP AC Lite 2G"
-#define WIFI_PASS "123mudar"
-#define METRICS_URL "http://192.168.81.16/metrics"
 
 /* Change screen resolution (landscape) */
 #define TFT_WIDTH 320
@@ -125,8 +122,6 @@ void my_print(const char * buf) {
 void setup()
 {
     Serial.begin(115200);
-    pinMode(0, OUTPUT);
-    digitalWrite(0, HIGH);
 
 #ifdef TOUCH
     touch.begin(); /* Initialize touchpad */
@@ -139,6 +134,14 @@ void setup()
 #endif
 
     tft.init();
+    
+    // Load brightness from NVS
+    Preferences prefs;
+    prefs.begin("settings", true);
+    int brightness = prefs.getInt("brightness", 128); // Default 50%
+    prefs.end();
+    tft.setBrightness(brightness);
+
     tft.fillScreen(TFT_BLACK);
 
     // Reduced buffer size to save internal DMA memory and prevent allocation failures
@@ -179,6 +182,7 @@ void setup()
     // Load calibration from NVS, or run calibration if not found
     bool has_cal = loadTouchCalibration(cal_A, cal_B, cal_C, cal_D, cal_E, cal_F, touch_calibrated);
     if (!has_cal) {
+    // if (true) {
 #ifdef TOUCH_CALIBRATION
         runTouchCalibration(tft, touch, cal_A, cal_B, cal_C, cal_D, cal_E, cal_F, touch_calibrated);
 #else
@@ -198,7 +202,7 @@ void setup()
     tft.fillScreen(TFT_BLACK);
 
     // Start background network fetch and initialize the UI dashboard layout
-    NetworkManager::begin(WIFI_SSID, WIFI_PASS, METRICS_URL);
+    NetworkManager::beginWithStoredNetworks();
     DashboardUI::init(TFT_WIDTH, TFT_HEIGHT);
 
     // Setup update timer
@@ -207,6 +211,7 @@ void setup()
         if (NetworkManager::getLatestMetrics(m)) {
             DashboardUI::update(m);
         }
+        DashboardUI::setFetchError(NetworkManager::isFetchFailed());
     };
     lv_timer_create(update_timer_cb, 1000, NULL);
 #endif
@@ -219,6 +224,8 @@ void loop()
 }
 
 void app_main(void) {
+
+    
     setup();
 
     while (1) {

@@ -151,3 +151,14 @@ void runTouchCalibration(LGFX &tft, CST820 &touch, double &cal_A, double &cal_B,
     Serial.println("Calibration complete!\n");
     delay(500);
 }
+
+void triggerTouchCalibration() {
+    Preferences prefs;
+    prefs.begin("touch_cal", false);
+    prefs.putBool("valid", false);
+    prefs.end();
+    
+    Serial.println("Calibration cleared. Rebooting to calibrate...");
+    delay(500);
+    ESP.restart();
+}
