@@ -8,12 +8,16 @@ void tearDown(void) {}
 void test_normalize_theme_id_defaults_to_primitive(void) {
     TEST_ASSERT_EQUAL_INT(0, normalizeThemeId(0));
     TEST_ASSERT_EQUAL_INT(1, normalizeThemeId(1));
+    TEST_ASSERT_EQUAL_INT(2, normalizeThemeId(2));
+    TEST_ASSERT_EQUAL_INT(3, normalizeThemeId(3));
+    TEST_ASSERT_EQUAL_INT(4, normalizeThemeId(4));
     TEST_ASSERT_EQUAL_INT(0, normalizeThemeId(-1));
-    TEST_ASSERT_EQUAL_INT(0, normalizeThemeId(2));
+    TEST_ASSERT_EQUAL_INT(0, normalizeThemeId(5));
     TEST_ASSERT_EQUAL_INT(0, normalizeThemeId(99));
 }
 
 void test_theme_palettes_match_specification(void) {
+    // 0: Primitive
     const UiThemePalette &prim = getThemePalette(0);
     TEST_ASSERT_EQUAL_HEX32(0xFFFFFF, prim.screen_bg);
     TEST_ASSERT_EQUAL_HEX32(0x4A90E2, prim.card_bg[0]);
@@ -23,7 +27,10 @@ void test_theme_palettes_match_specification(void) {
     TEST_ASSERT_EQUAL_INT(2, prim.card_border_width);
     TEST_ASSERT_EQUAL_HEX32(0x63A986, prim.settings_bg);
     TEST_ASSERT_EQUAL_HEX32(0xFFB19A, prim.editor_bg);
+    TEST_ASSERT_EQUAL_HEX32(0x1A1A1A, prim.chart_bg);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFF, prim.chart_line[0]);
 
+    // 1: Dark High Contrast
     const UiThemePalette &dark = getThemePalette(1);
     TEST_ASSERT_EQUAL_HEX32(0x12161C, dark.screen_bg);
     TEST_ASSERT_EQUAL_HEX32(0x1D2430, dark.card_bg[0]);
@@ -33,6 +40,44 @@ void test_theme_palettes_match_specification(void) {
     TEST_ASSERT_EQUAL_HEX32(0xFFFFFF, dark.card_value);
     TEST_ASSERT_EQUAL_INT(3, dark.card_border_width);
     TEST_ASSERT_EQUAL_HEX32(0x18202A, dark.settings_bg);
+    TEST_ASSERT_EQUAL_HEX32(0x0D1117, dark.chart_bg);
+    TEST_ASSERT_EQUAL_HEX32(0x4A90E2, dark.chart_line[0]);
+
+    // 2: Daylight Paper
+    const UiThemePalette &paper = getThemePalette(2);
+    TEST_ASSERT_EQUAL_HEX32(0xEEF2F6, paper.screen_bg);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFF, paper.card_bg[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x2563EB, paper.card_border[0]);
+    TEST_ASSERT_EQUAL_HEX32(0xDC2626, paper.card_border[1]);
+    TEST_ASSERT_EQUAL_HEX32(0x0F172A, paper.card_value);
+    TEST_ASSERT_EQUAL_HEX32(0xE2E8F0, paper.settings_bg);
+    TEST_ASSERT_EQUAL_HEX32(0xF1F5F9, paper.chart_bg);
+    TEST_ASSERT_EQUAL_HEX32(0x16A34A, paper.chart_line[2]);
+
+    // 3: Neon Oscilloscope
+    const UiThemePalette &neon = getThemePalette(3);
+    TEST_ASSERT_EQUAL_HEX32(0x090B10, neon.screen_bg);
+    TEST_ASSERT_EQUAL_HEX32(0x121726, neon.card_bg[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x00E5FF, neon.card_border[0]);
+    TEST_ASSERT_EQUAL_HEX32(0xFF2E97, neon.card_border[1]);
+    TEST_ASSERT_EQUAL_HEX32(0x39FF14, neon.card_border[2]);
+    TEST_ASSERT_EQUAL_HEX32(0xFFB800, neon.card_border[3]);
+    TEST_ASSERT_EQUAL_HEX32(0xF5FAFF, neon.card_value);
+    TEST_ASSERT_EQUAL_HEX32(0x0E1320, neon.settings_bg);
+    TEST_ASSERT_EQUAL_HEX32(0x070A12, neon.chart_bg);
+    TEST_ASSERT_EQUAL_HEX32(0x00E5FF, neon.chart_line[0]);
+
+    // 4: Amber Night
+    const UiThemePalette &amber = getThemePalette(4);
+    TEST_ASSERT_EQUAL_HEX32(0x0B0804, amber.screen_bg);
+    TEST_ASSERT_EQUAL_HEX32(0x1A1208, amber.card_bg[0]);
+    TEST_ASSERT_EQUAL_HEX32(0xFFB000, amber.card_border[0]);
+    TEST_ASSERT_EQUAL_HEX32(0xFF9500, amber.card_border[3]);
+    TEST_ASSERT_EQUAL_HEX32(0xFFD166, amber.card_value);
+    TEST_ASSERT_EQUAL_INT(2, amber.card_border_width);
+    TEST_ASSERT_EQUAL_HEX32(0x160F06, amber.settings_bg);
+    TEST_ASSERT_EQUAL_HEX32(0x0F0A04, amber.chart_bg);
+    TEST_ASSERT_EQUAL_HEX32(0xD4A017, amber.chart_line[2]);
 
     TEST_ASSERT_EQUAL_HEX32(0x63A986, getThemePalette(42).settings_bg);
 }

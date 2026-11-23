@@ -273,8 +273,9 @@ namespace DashboardUI {
                 lv_obj_set_style_text_color(zoom_session_label, lv_color_hex(p.card_value), 0);
             }
             if (zoom_chart && zoom_series) {
-                uint32_t ser_col = (app_settings.theme == 0) ? 0xFFFFFF : p.card_title[zoom_card_index];
-                lv_chart_set_series_color(zoom_chart, zoom_series, lv_color_hex(ser_col));
+                lv_obj_set_style_bg_color(zoom_chart, lv_color_hex(p.chart_bg), 0);
+                lv_obj_set_style_bg_opa(zoom_chart, (app_settings.theme == 0) ? LV_OPA_30 : LV_OPA_COVER, 0);
+                lv_chart_set_series_color(zoom_chart, zoom_series, lv_color_hex(p.chart_line[zoom_card_index]));
             }
         }
 
@@ -462,18 +463,12 @@ namespace DashboardUI {
         lv_obj_set_style_radius(zoom_chart, 6, 0);
         lv_obj_set_style_border_width(zoom_chart, 1, 0);
         lv_obj_set_style_border_color(zoom_chart, lv_color_hex(0x555555), 0);
-        if (app_settings.theme == 0) {
-            lv_obj_set_style_bg_color(zoom_chart, lv_color_black(), 0);
-            lv_obj_set_style_bg_opa(zoom_chart, LV_OPA_20, 0);
-        } else {
-            lv_obj_set_style_bg_color(zoom_chart, lv_color_hex(0x0D1117), 0);
-            lv_obj_set_style_bg_opa(zoom_chart, LV_OPA_60, 0);
-        }
+        lv_obj_set_style_bg_color(zoom_chart, lv_color_hex(p.chart_bg), 0);
+        lv_obj_set_style_bg_opa(zoom_chart, (app_settings.theme == 0) ? LV_OPA_30 : LV_OPA_COVER, 0);
         lv_obj_set_style_size(zoom_chart, 0, LV_PART_INDICATOR);
         lv_obj_set_style_line_width(zoom_chart, 2, LV_PART_ITEMS);
 
-        uint32_t ser_col = (app_settings.theme == 0) ? 0xFFFFFF : p.card_title[card_idx];
-        zoom_series = lv_chart_add_series(zoom_chart, lv_color_hex(ser_col), LV_CHART_AXIS_PRIMARY_Y);
+        zoom_series = lv_chart_add_series(zoom_chart, lv_color_hex(p.chart_line[card_idx]), LV_CHART_AXIS_PRIMARY_Y);
 
         zoom_stats_label = lv_label_create(zoom_detail);
         lv_label_set_text(zoom_stats_label, "Collecting samples...");
@@ -1232,7 +1227,9 @@ namespace DashboardUI {
         lv_obj_align(theme_row_label, LV_ALIGN_LEFT_MID, 0, 0);
 
         lv_obj_t *theme_dd = lv_dropdown_create(theme_row);
-        lv_dropdown_set_options(theme_dd, "Primitive\nDark High Contrast");
+        lv_dropdown_set_options(
+            theme_dd,
+            "Primitive\nDark High Contrast\nDaylight Paper\nNeon Oscilloscope\nAmber Night");
         lv_dropdown_set_selected(theme_dd, static_cast<uint16_t>(normalizeThemeId(app_settings.theme)));
         lv_obj_set_size(theme_dd, 180, 34);
         lv_obj_align(theme_dd, LV_ALIGN_RIGHT_MID, 0, 0);

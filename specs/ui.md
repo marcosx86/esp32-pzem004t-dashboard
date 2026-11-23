@@ -34,21 +34,21 @@ To preserve maximum touch area for an adult finger on a `320×240` panel, **no f
 
 ## 3. Multi-Theme Support *(Active)*
 
-Defined in `UI_Logic` (`UiThemePalette`) and persisted via `settings/theme` (`normalizeThemeId` coerces invalid IDs to `0`):
+Defined in `UI_Logic` (`UiThemePalette`, `kUiThemeCount = 5`) and persisted via `settings/theme` (`normalizeThemeId` coerces invalid IDs outside `0..4` to `0`):
 
-| Element | `Primitive` (`0`, Default) | `Dark High Contrast` (`1`) |
-|---------|----------------------------|----------------------------|
-| Screen BG | `#FFFFFF` | `#12161C` |
-| Cards BG | `#4A90E2`, `#E74C3C`, `#2ECC71`, `#F39C12` | `#1D2430` (all 4) |
-| Card Borders | `#444444` (`2px`) | `#4A90E2`, `#E74C3C`, `#2ECC71`, `#F39C12` (`3px`) |
-| Card Titles | `#1A1A1A` | `#4A90E2`, `#E74C3C`, `#2ECC71`, `#F39C12` |
-| Card Values / Sub | `#111111` / `#222222` | `#FFFFFF` / `#A9B4C2` |
-| HUD Pill BG / Text | `#222A35` / `#FFFFFF` | `#0D1117` / `#FFFFFF` |
-| Settings BG / Text | `#63A986` / `#111111` | `#18202A` / `#F0F4F8` |
-| Editor Panel BG | `#FFB19A` | `#243040` |
-| List Border | `#555555` | `#3A4A5E` |
+| Element | `Primitive` (`0`, Default) | `Dark High Contrast` (`1`) | `Daylight Paper` (`2`) | `Neon Oscilloscope` (`3`) | `Amber Night` (`4`) |
+|---------|----------------------------|----------------------------|------------------------|---------------------------|---------------------|
+| Screen BG | `#FFFFFF` | `#12161C` | `#EEF2F6` | `#090B10` | `#0B0804` |
+| Cards BG | `#4A90E2`, `#E74C3C`, `#2ECC71`, `#F39C12` | `#1D2430` (all 4) | `#FFFFFF` (all 4) | `#121726` (all 4) | `#1A1208` (all 4) |
+| Card Borders | `#444444` (`2px`) | `#4A90E2`, `#E74C3C`, `#2ECC71`, `#F39C12` (`3px`) | `#2563EB`, `#DC2626`, `#16A34A`, `#D97706` (`3px`) | `#00E5FF`, `#FF2E97`, `#39FF14`, `#FFB800` (`3px`) | `#FFB000`, `#FF6B00`, `#D4A017`, `#FF9500` (`2px`) |
+| Card Titles | `#1A1A1A` | `#4A90E2`, `#E74C3C`, `#2ECC71`, `#F39C12` | `#2563EB`, `#DC2626`, `#16A34A`, `#D97706` | `#00E5FF`, `#FF2E97`, `#39FF14`, `#FFB800` | `#FFB000`, `#FF6B00`, `#D4A017`, `#FF9500` |
+| Card Values / Sub | `#111111` / `#222222` | `#FFFFFF` / `#A9B4C2` | `#0F172A` / `#475569` | `#F5FAFF` / `#8FA8C8` | `#FFD166` / `#B88A44` |
+| HUD Pill BG / Text | `#222A35` / `#FFFFFF` | `#0D1117` / `#FFFFFF` | `#1E293B` / `#FFFFFF` | `#0F1524` / `#FFFFFF` | `#140E06` / `#FFD166` |
+| Settings BG / Text | `#63A986` / `#111111` | `#18202A` / `#F0F4F8` | `#E2E8F0` / `#0F172A` | `#0E1320` / `#E6F1FF` | `#160F06` / `#FFD166` |
+| Editor / List Border | `#FFB19A` / `#555555` | `#243040` / `#3A4A5E` | `#F8FAFC` / `#94A3B8` | `#182238` / `#2B3A55` | `#24180A` / `#5C3D12` |
+| Zoom Chart BG / Line | `#1A1A1A` (`LV_OPA_30`) / `#FFFFFF` | `#0D1117` / `#4A90E2`..`#F39C12` | `#F1F5F9` / `#2563EB`..`#D97706` | `#070A12` / `#00E5FF`..`#FFB800` | `#0F0A04` / `#FFB000`..`#FF9500` |
 
-Selecting a theme in Settings applies styles immediately to the dashboard, HUD pills, Settings modal, and Zoom view and persists to NVS.
+Selecting a theme in Settings applies styles immediately to the dashboard, HUD pills, Settings modal, and Zoom sparkline view and persists to NVS.
 
 ---
 

@@ -7,8 +7,13 @@
 
 enum class UiThemeId {
     PRIMITIVE = 0,
-    DARK_HIGH_CONTRAST = 1
+    DARK_HIGH_CONTRAST = 1,
+    DAYLIGHT_PAPER = 2,
+    NEON_OSCILLOSCOPE = 3,
+    AMBER_NIGHT = 4
 };
+
+static constexpr int kUiThemeCount = 5;
 
 struct UiThemePalette {
     uint32_t screen_bg;
@@ -24,6 +29,8 @@ struct UiThemePalette {
     uint32_t settings_text;
     uint32_t editor_bg;
     uint32_t list_border;
+    uint32_t chart_bg;
+    uint32_t chart_line[4];
 };
 
 enum class HudFreshness {
@@ -38,7 +45,7 @@ enum class InputFieldKind {
 };
 
 /**
- * @brief Clamps/normalizes an arbitrary persisted theme ID to PRIMITIVE (0) or DARK_HIGH_CONTRAST (1).
+ * @brief Clamps/normalizes an arbitrary persisted theme ID to 0..(kUiThemeCount - 1), defaulting to PRIMITIVE (0).
  */
 int normalizeThemeId(int theme_id);
 

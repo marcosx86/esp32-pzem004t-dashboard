@@ -64,7 +64,7 @@ Exposes thread-safe snapshot for HUD & Settings:
 | `settings` | `brightness` | `int32` | `128` | LCD backlight PWM duty (`10..255`). |
 | `settings` | `metrics_ip` | `String` | `"192.168.1.10"` | Target metrics server host/IP (optionally with `:port`). |
 | `settings` | `metrics_path` | `String` | `"/metrics"` | Target Prometheus endpoint path. |
-| `settings` | `theme` | `int32` | `0` | UI theme (`0 = Primitive`, `1 = Dark High Contrast`). |
+| `settings` | `theme` | `int32` | `0` | UI theme (`0 = Primitive`, `1 = Dark High Contrast`, `2 = Daylight Paper`, `3 = Neon Oscilloscope`, `4 = Amber Night`). |
 | `settings` | `touch_cursor` | `bool` | `true` | Red touch debug dot visibility (`ON` by default). |
 | `settings` | `autodim_sec` | `int32` | `0` | Inactivity auto-dim timeout in seconds (`0 = Off`). |
 | `settings` | `autodim_lvl` | `int32` | `15` | PWM brightness when auto-dimmed. |
