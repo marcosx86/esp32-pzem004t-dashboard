@@ -45,4 +45,4 @@ Given 4 raw tap samples `(xr_i, yr_i)` and screen targets `(xs_i, ys_i)` at corn
 
 - Rendered on `lv_layer_sys()` as a 20×20 red circle (`0xFF0000`, `LV_OPA_80`) centered on `(calibrated_x, calibrated_y)` while pressed, hidden on release.
 - Controlled by `settings/touch_cursor` (default **`true` / ON**).
-- *(Milestone 2)* Exposed as a live switch in Settings so adult-finger alignment can be toggled on/off anytime without rebooting.
+- *(Active — Milestone 2)* Exposed as a live **Red Touch Dot** switch in Settings (and **Reset TS Calib** button alongside **Calibrate Touch**) so adult-finger alignment can be toggled or reset on the fly without rebooting.

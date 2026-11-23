@@ -29,8 +29,9 @@ To support fast host unit/regression testing and `gcov`/`gcovr` coverage under P
 - `Metrics_Stats` (`include/Metrics_Stats.h`, `src/Metrics_Stats.cpp`)
 - `Network_Store` (`include/Network_Store.h`, `src/Network_Store.cpp`)
 - `Touch_Math` (`include/Touch_Math.h`, `src/Touch_Math.cpp`)
+- `UI_Logic` (`include/UI_Logic.h`, `src/UI_Logic.cpp`)
 
-All four modules depend solely on standard C++11 headers.
+All five modules depend solely on standard C++11 headers.
 
 ---
 
@@ -45,6 +46,6 @@ All four modules depend solely on standard C++11 headers.
 
 ## 5. Rollout Roadmap
 
-- **Milestone 1 (Active):** Establish `SPEC.md` & `specs/*.md`, configure `[env:native]`, implement the 4 pure-logic modules + Unity regression suites, fix `0.00` initial startup values, upgrade touch solver to 4-point least-squares + `resetTouchCalibration`, and make Wi-Fi boot/connect/scan non-blocking on Core 0.
-- **Milestone 2 (Planned UI):** Top-50px floating HUD (Wi-Fi/RSSI/freshness + tap diagnostic popup, DHT22 Temp/Humidity center pill, Brightness/Settings right icons), **Primitive** / **Dark High Contrast** theme selector, async Wi-Fi scan list + connect spinner, numeric keyboard mode for IP/numeric inputs + scroll-into-view, toggleable Red Touch Cursor, **Reset TS Calib** button, and clean non-flashing boot.
+- **Milestone 1 (Completed):** Establish `SPEC.md` & `specs/*.md`, configure `[env:native]`, implement the pure-logic modules + Unity regression suites, fix `0.00` initial startup values, upgrade touch solver to 4-point least-squares + `resetTouchCalibration`, and make Wi-Fi boot/connect/scan non-blocking on Core 0.
+- **Milestone 2 (Active):** Top-50px floating HUD (Wi-Fi/RSSI/freshness + tap diagnostic popup, DHT22 Temp/Humidity center pill, Brightness/Settings right icons), **Primitive** / **Dark High Contrast** theme selector, async Wi-Fi scan list + connect spinner, custom IP/numeric keyboard mode + scroll-into-view (keeping 160px keyboard height), toggleable Red Touch Cursor, **Reset TS Calib** button, and clean non-flashing boot.
 - **Milestone 3 (Planned Analytics & Power Saving):** Enable `LV_USE_CHART`, zoom modal `lv_chart` sparklines + `Min / Avg / Max`, Voltage/Current/Power threshold alert highlights, Session kWh + Tariff Cost + **Reset Session**, and Auto-Dim inactivity sleep with wake-touch absorption.

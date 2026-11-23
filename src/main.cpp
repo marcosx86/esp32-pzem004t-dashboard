@@ -93,10 +93,14 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
             last_print = millis();
         }
         
-        // Update and show touch cursor
+        // Update and show touch cursor only when enabled in settings
         if (DashboardUI::touch_cursor) {
-            lv_obj_set_pos(DashboardUI::touch_cursor, calibrated_x - 10, calibrated_y - 10);  // Center cursor on touch point
-            lv_obj_clear_flag(DashboardUI::touch_cursor, LV_OBJ_FLAG_HIDDEN);
+            if (DashboardUI::isTouchCursorEnabled()) {
+                lv_obj_set_pos(DashboardUI::touch_cursor, calibrated_x - 10, calibrated_y - 10);  // Center cursor on touch point
+                lv_obj_clear_flag(DashboardUI::touch_cursor, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(DashboardUI::touch_cursor, LV_OBJ_FLAG_HIDDEN);
+            }
         }
     }
 }
@@ -182,26 +186,22 @@ void setup()
 #endif
 
     tft.fillScreen(TFT_BLACK);
-    delay(100);
-    tft.fillScreen(TFT_RED);
-    delay(100);
-    tft.fillScreen(TFT_GREEN);
-    delay(100);
-    tft.fillScreen(TFT_BLUE);
-    delay(100);
-    tft.fillScreen(TFT_BLACK);
 
-    // Start background network fetch and initialize the UI dashboard layout
+    // Start background network fetch and initialize the UI dashboard layout immediately (clean boot)
     NetworkManager::beginWithStoredNetworks();
+    DashboardUI::setTouchResetCallback([]() {
+        resetTouchCalibration(cal_A, cal_B, cal_C, cal_D, cal_E, cal_F, touch_calibrated);
+    });
     DashboardUI::init(TFT_WIDTH, TFT_HEIGHT);
 
     // Setup update timer
     auto update_timer_cb = [](lv_timer_t *t){
+        (void)t;
         MetricsData m;
         if (NetworkManager::getLatestMetrics(m)) {
             DashboardUI::update(m);
         }
-        DashboardUI::setFetchError(NetworkManager::isFetchFailed());
+        DashboardUI::updateDiagnostics(NetworkManager::getDiagnostics());
     };
     lv_timer_create(update_timer_cb, 1000, NULL);
 #endif
