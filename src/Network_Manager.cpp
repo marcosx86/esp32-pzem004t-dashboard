@@ -17,11 +17,22 @@ namespace NetworkManager {
     static int last_http_code = 0;
     static uint32_t last_success_ms = 0;
 
+    enum class ScanState {
+        IDLE = 0,
+        SCANNING = 1,
+        DONE = 2,
+        FAILED = 3
+    };
+
     static bool boot_connect_pending = false;
     static bool pending_connect = false;
     static String pending_ssid;
     static String pending_pass;
     static ConnectState connect_state = ConnectState::IDLE;
+
+    static bool scan_requested = false;
+    static ScanState scan_state = ScanState::IDLE;
+    static std::vector<WifiScanEntry> cached_scan_results;
 
     static AppSettings cached_settings;
 
@@ -58,7 +69,18 @@ namespace NetworkManager {
         return result;
     }
 
-    static bool connectToWifi(const char* ssid, const char* pass, bool abort_on_pending) {
+    static bool hasPendingScanRequest() {
+        bool result = false;
+        if (metrics_mutex && xSemaphoreTake(metrics_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+            result = scan_requested;
+            xSemaphoreGive(metrics_mutex);
+        } else {
+            result = scan_requested;
+        }
+        return result;
+    }
+
+    static bool connectToWifi(const char* ssid, const char* pass, bool abort_on_pending, bool abort_on_scan) {
         Serial.printf("Connecting to WiFi '%s'", ssid);
         WiFi.disconnect();
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -67,8 +89,9 @@ namespace NetworkManager {
 
         unsigned long start = millis();
         while (WiFi.status() != WL_CONNECTED && (millis() - start) < 10000) {
-            if (abort_on_pending && hasPendingConnectRequest()) {
-                Serial.println(" aborted for manual connect");
+            if ((abort_on_pending && hasPendingConnectRequest()) ||
+                (abort_on_scan && hasPendingScanRequest())) {
+                Serial.println(" aborted");
                 return false;
             }
             vTaskDelay(pdMS_TO_TICKS(200));
@@ -109,7 +132,7 @@ namespace NetworkManager {
             }
 
             if (run_explicit) {
-                bool ok = connectToWifi(req_ssid.c_str(), req_pass.c_str(), true);
+                bool ok = connectToWifi(req_ssid.c_str(), req_pass.c_str(), true, false);
                 if (metrics_mutex && xSemaphoreTake(metrics_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                     if (!pending_connect) {
                         connect_state = ok ? ConnectState::CONNECTED : ConnectState::FAILED;
@@ -120,7 +143,78 @@ namespace NetworkManager {
                 continue;
             }
 
-            // 2. Sequential boot auto-connect cycling across saved networks
+            // 2. Execute Wi-Fi scan exclusively on Core 0
+            bool run_scan = false;
+            if (metrics_mutex && xSemaphoreTake(metrics_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+                if (scan_requested) {
+                    run_scan = true;
+                    scan_requested = false;
+                    scan_state = ScanState::SCANNING;
+                }
+                xSemaphoreGive(metrics_mutex);
+            }
+
+            if (run_scan) {
+                WiFi.mode(WIFI_STA);
+                bool was_connected = (WiFi.status() == WL_CONNECTED);
+                if (!was_connected) {
+                    WiFi.setAutoReconnect(false);
+                    WiFi.disconnect(false);
+                    vTaskDelay(pdMS_TO_TICKS(150));
+                }
+
+                WiFi.scanDelete();
+                int16_t raw_count = WiFi.scanNetworks(false, false, false, 200);
+                if (raw_count == WIFI_SCAN_FAILED) {
+                    Serial.println("[WiFiScan] Initial scan failed (-2); retrying...");
+                    vTaskDelay(pdMS_TO_TICKS(250));
+                    raw_count = WiFi.scanNetworks(false, false, false, 200);
+                }
+
+                std::vector<WifiScanEntry> entries;
+                if (raw_count >= 0) {
+                    std::vector<ScannedWifiInfo> raw_list;
+                    raw_list.reserve(static_cast<size_t>(raw_count));
+                    for (int16_t i = 0; i < raw_count; ++i) {
+                        raw_list.push_back(ScannedWifiInfo{
+                            WiFi.SSID(i).c_str(),
+                            WiFi.RSSI(i),
+                            WiFi.encryptionType(i) != WIFI_AUTH_OPEN
+                        });
+                    }
+                    WiFi.scanDelete();
+
+                    std::vector<ScannedWifiInfo> normalized = normalizeScanResults(raw_list);
+                    entries.reserve(normalized.size());
+                    for (const auto& item : normalized) {
+                        entries.push_back(WifiScanEntry{
+                            String(item.ssid.c_str()),
+                            item.rssi,
+                            item.encrypted
+                        });
+                    }
+                } else {
+                    WiFi.scanDelete();
+                }
+
+                if (!was_connected) {
+                    WiFi.setAutoReconnect(true);
+                }
+
+                Serial.printf("[WiFiScan] raw=%d unique=%u\n", raw_count, static_cast<unsigned>(entries.size()));
+
+                if (metrics_mutex && xSemaphoreTake(metrics_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                    cached_scan_results = std::move(entries);
+                    scan_state = (raw_count >= 0) ? ScanState::DONE : ScanState::FAILED;
+                    xSemaphoreGive(metrics_mutex);
+                } else {
+                    cached_scan_results = std::move(entries);
+                    scan_state = (raw_count >= 0) ? ScanState::DONE : ScanState::FAILED;
+                }
+                continue;
+            }
+
+            // 3. Sequential boot auto-connect cycling across saved networks
             bool run_boot = false;
             if (metrics_mutex && xSemaphoreTake(metrics_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                 run_boot = boot_connect_pending;
@@ -132,15 +226,15 @@ namespace NetworkManager {
                 std::vector<WifiCredential> networks = loadSavedNetworks();
                 bool connected = false;
                 for (const auto& net : networks) {
-                    if (hasPendingConnectRequest()) {
+                    if (hasPendingConnectRequest() || hasPendingScanRequest()) {
                         break;
                     }
-                    if (connectToWifi(net.ssid.c_str(), net.password.c_str(), true)) {
+                    if (connectToWifi(net.ssid.c_str(), net.password.c_str(), true, true)) {
                         connected = true;
                         break;
                     }
                 }
-                if (!connected && !hasPendingConnectRequest()) {
+                if (!connected && !hasPendingConnectRequest() && !hasPendingScanRequest()) {
                     Serial.println("All stored networks failed.");
                 }
                 polled_once = false;
@@ -340,7 +434,7 @@ namespace NetworkManager {
 
     bool connectToNetwork(const String& ssid, const String& password) {
         if (!init_done) {
-            return connectToWifi(ssid.c_str(), password.c_str(), false);
+            return connectToWifi(ssid.c_str(), password.c_str(), false, false);
         }
 
         requestConnect(ssid, password);
@@ -359,52 +453,49 @@ namespace NetworkManager {
     }
 
     void startWifiScan() {
-        WiFi.mode(WIFI_STA);
-        if (WiFi.scanComplete() != WIFI_SCAN_RUNNING) {
-            WiFi.scanDelete();
-            WiFi.scanNetworks(true);
+        if (metrics_mutex && xSemaphoreTake(metrics_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            cached_scan_results.clear();
+            scan_state = ScanState::SCANNING;
+            scan_requested = true;
+            xSemaphoreGive(metrics_mutex);
+        } else {
+            cached_scan_results.clear();
+            scan_state = ScanState::SCANNING;
+            scan_requested = true;
         }
     }
 
     int getWifiScanStatus() {
-        return WiFi.scanComplete();
+        int status = -2;
+        if (metrics_mutex && xSemaphoreTake(metrics_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+            if (scan_state == ScanState::SCANNING) {
+                status = -1;
+            } else if (scan_state == ScanState::DONE) {
+                status = static_cast<int>(cached_scan_results.size());
+            } else {
+                status = -2;
+            }
+            xSemaphoreGive(metrics_mutex);
+        } else {
+            if (scan_state == ScanState::SCANNING) {
+                status = -1;
+            } else if (scan_state == ScanState::DONE) {
+                status = static_cast<int>(cached_scan_results.size());
+            }
+        }
+        return status;
     }
 
     std::vector<WifiScanEntry> getWifiScanResults() {
-        int count = WiFi.scanComplete();
         std::vector<WifiScanEntry> results;
-        if (count < 0) {
-            return results;
+        if (metrics_mutex && xSemaphoreTake(metrics_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+            if (scan_state == ScanState::DONE) {
+                results = cached_scan_results;
+            }
+            xSemaphoreGive(metrics_mutex);
+        } else if (scan_state == ScanState::DONE) {
+            results = cached_scan_results;
         }
-
-        for (int i = 0; i < count; ++i) {
-            String ssid = WiFi.SSID(i);
-            if (ssid.isEmpty()) {
-                continue;
-            }
-            int32_t rssi = WiFi.RSSI(i);
-            bool enc = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
-
-            bool merged = false;
-            for (auto& existing : results) {
-                if (existing.ssid == ssid) {
-                    if (rssi > existing.rssi) {
-                        existing.rssi = rssi;
-                        existing.encrypted = enc;
-                    }
-                    merged = true;
-                    break;
-                }
-            }
-            if (!merged) {
-                results.push_back(WifiScanEntry{ssid, rssi, enc});
-            }
-        }
-
-        WiFi.scanDelete();
-        std::sort(results.begin(), results.end(), [](const WifiScanEntry& a, const WifiScanEntry& b) {
-            return a.rssi > b.rssi;
-        });
         return results;
     }
 

@@ -1,5 +1,6 @@
 #include "Network_Store.h"
 
+#include <algorithm>
 #include <cctype>
 
 namespace {
@@ -113,6 +114,47 @@ bool deleteWifiCredential(std::vector<StoredWifiCredential> &networks, int index
     }
     networks.erase(networks.begin() + index);
     return true;
+}
+
+std::vector<ScannedWifiInfo> normalizeScanResults(const std::vector<ScannedWifiInfo> &raw) {
+    std::vector<ScannedWifiInfo> out;
+    for (size_t i = 0; i < raw.size(); ++i) {
+        if (raw[i].ssid.empty()) {
+            continue;
+        }
+        bool merged = false;
+        for (size_t j = 0; j < out.size(); ++j) {
+            if (out[j].ssid == raw[i].ssid) {
+                if (raw[i].rssi > out[j].rssi) {
+                    out[j].rssi = raw[i].rssi;
+                    out[j].encrypted = raw[i].encrypted;
+                }
+                merged = true;
+                break;
+            }
+        }
+        if (!merged) {
+            out.push_back(raw[i]);
+        }
+    }
+
+    std::sort(out.begin(), out.end(), [](const ScannedWifiInfo &a, const ScannedWifiInfo &b) {
+        if (a.rssi != b.rssi) {
+            return a.rssi > b.rssi;
+        }
+        return a.ssid < b.ssid;
+    });
+    return out;
+}
+
+WifiScanUiState classifyWifiScanStatus(int scan_status) {
+    if (scan_status == -1) {
+        return WifiScanUiState::RUNNING;
+    }
+    if (scan_status < -1) {
+        return WifiScanUiState::FAILED;
+    }
+    return WifiScanUiState::READY;
 }
 
 std::string buildMetricsUrl(const std::string &ip, const std::string &path) {

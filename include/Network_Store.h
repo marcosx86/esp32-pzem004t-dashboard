@@ -1,6 +1,7 @@
 #ifndef NETWORK_STORE_H
 #define NETWORK_STORE_H
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -10,6 +11,21 @@
 struct StoredWifiCredential {
     std::string ssid;
     std::string password;
+};
+
+/**
+ * @brief Hardware-independent discovered Wi-Fi AP entry.
+ */
+struct ScannedWifiInfo {
+    std::string ssid;
+    int32_t rssi;
+    bool encrypted;
+};
+
+enum class WifiScanUiState {
+    RUNNING = 0,
+    FAILED = 1,
+    READY = 2
 };
 
 /**
@@ -35,6 +51,16 @@ bool addOrUpdateWifiCredential(std::vector<StoredWifiCredential> &networks,
  * @brief Removes the credential at @p index if within bounds.
  */
 bool deleteWifiCredential(std::vector<StoredWifiCredential> &networks, int index);
+
+/**
+ * @brief Drops empty SSIDs, keeps strongest RSSI per duplicate SSID, and sorts descending by RSSI.
+ */
+std::vector<ScannedWifiInfo> normalizeScanResults(const std::vector<ScannedWifiInfo> &raw);
+
+/**
+ * @brief Classifies NetworkManager::getWifiScanStatus() code into RUNNING (-1), FAILED (<-1), or READY (>=0).
+ */
+WifiScanUiState classifyWifiScanStatus(int scan_status);
 
 /**
  * @brief Builds an HTTP URL from host/IP and endpoint path without duplicate scheme or slashes.

@@ -41,10 +41,13 @@
      - On `false`: sets `fetch_failed = true`, records `last_http_code` (HTTP code or negative client error).
    - If not connected: sets `fetch_failed = true`, `last_http_code = -1`.
 
-### Asynchronous Wi-Fi Scan API *(for Milestone 2 UI)*
-- `startWifiScan()`: calls `WiFi.scanNetworks(true)` (async) if not already running.
-- `getWifiScanStatus()`: returns `WiFi.scanComplete()` (`WIFI_SCAN_RUNNING = -1`, `WIFI_SCAN_FAILED = -2`, or `>= 0` count).
-- `getWifiScanResults()`: converts scan entries into `std::vector<WifiScanEntry>` (`ssid`, `rssi`, `encrypted`), deduplicates stronger RSSI per SSID, sorts descending by RSSI, and clears scan buffer (`WiFi.scanDelete()`).
+### Asynchronous Wi-Fi Scan API *(Core-0 Serialized Execution)*
+- **Core-0 Ownership:** All `WiFi.scan*` calls run exclusively on Core 0 inside `network_task`, serialized against boot cycling, explicit connects, and HTTP polling to avoid `ESP_ERR_WIFI_STATE` rejections and cross-core Wi-Fi driver contention:
+  - `startWifiScan()`: queues `scan_requested = true`, sets `scan_state = ScanState::SCANNING`, and clears `cached_scan_results` under `metrics_mutex` (also interrupting active boot auto-connect cycling so scanning starts promptly).
+  - **STA Idle Preparation:** When `WiFi.status() != WL_CONNECTED`, Core 0 temporarily disables `WiFi.setAutoReconnect(false)` and calls `WiFi.disconnect(false)` + `150 ms` settle delay so ESP-IDF STA leaves `WIFI_STATE_CONNECTING` cleanly before calling `WiFi.scanNetworks(false, false, false, 200)`.
+  - **Retry & Normalization:** If `WiFi.scanNetworks` returns `WIFI_SCAN_FAILED (-2)`, Core 0 waits `250 ms` and retries once before marking `ScanState::FAILED`. Raw entries are normalized via `Network_Store::normalizeScanResults()` (dropping empty SSIDs, deduplicating by strongest RSSI, sorting RSSI descending with deterministic SSID tie-break), stored in `cached_scan_results`, and freed via `WiFi.scanDelete()`. Auto-reconnect is restored when previously disconnected.
+- `getWifiScanStatus()`: returns `-1` while `SCANNING`, `-2` on `FAILED`/`IDLE`, or `>= 0` (discovered count) on `DONE`.
+- `getWifiScanResults()`: returns a thread-safe copy of `cached_scan_results` (`ssid`, `rssi`, `encrypted`) when `DONE` (else empty).
 
 ### Diagnostics (`NetworkDiagnostics`)
 Exposes thread-safe snapshot for HUD & Settings:

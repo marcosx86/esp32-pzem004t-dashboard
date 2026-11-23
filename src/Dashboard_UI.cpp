@@ -890,8 +890,8 @@ namespace DashboardUI {
 
     static void scan_poll_timer_cb(lv_timer_t * t) {
         (void)t;
-        int status = NetworkManager::getWifiScanStatus();
-        if (status == -1) {
+        WifiScanUiState ui_state = classifyWifiScanStatus(NetworkManager::getWifiScanStatus());
+        if (ui_state == WifiScanUiState::RUNNING) {
             return;
         }
 
@@ -907,6 +907,13 @@ namespace DashboardUI {
         }
 
         lv_obj_clean(scan_list);
+        if (ui_state == WifiScanUiState::FAILED) {
+            lv_obj_t *err = lv_label_create(scan_list);
+            lv_label_set_text(err, "Scan failed. Tap Rescan.");
+            lv_obj_center(err);
+            return;
+        }
+
         std::vector<NetworkManager::WifiScanEntry> entries = NetworkManager::getWifiScanResults();
         if (entries.empty()) {
             lv_obj_t *empty = lv_label_create(scan_list);
@@ -993,6 +1000,26 @@ namespace DashboardUI {
         lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
         lv_obj_set_style_text_color(title, lv_color_hex(p.settings_text), 0);
         lv_obj_align(title, LV_ALIGN_TOP_LEFT, 2, 4);
+
+        lv_obj_t *refresh_btn = lv_btn_create(panel);
+        lv_obj_set_size(refresh_btn, 32, 26);
+        lv_obj_align(refresh_btn, LV_ALIGN_TOP_RIGHT, -38, 0);
+        lv_obj_add_event_cb(refresh_btn, [](lv_event_t * e) {
+            (void)e;
+            if (scan_list) {
+                lv_obj_clean(scan_list);
+            }
+            if (scan_spinner) {
+                lv_obj_clear_flag(scan_spinner, LV_OBJ_FLAG_HIDDEN);
+            }
+            NetworkManager::startWifiScan();
+            if (!scan_poll_timer) {
+                scan_poll_timer = lv_timer_create(scan_poll_timer_cb, 250, NULL);
+            }
+        }, LV_EVENT_CLICKED, NULL);
+        lv_obj_t *refresh_lbl = lv_label_create(refresh_btn);
+        lv_label_set_text(refresh_lbl, LV_SYMBOL_REFRESH);
+        lv_obj_center(refresh_lbl);
 
         lv_obj_t *close_btn = lv_btn_create(panel);
         lv_obj_set_size(close_btn, 32, 26);

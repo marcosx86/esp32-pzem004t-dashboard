@@ -73,7 +73,7 @@ Selecting a theme in Settings applies styles immediately to the dashboard, HUD p
   - Focusing an input inside `settings_content` expands `pad_bottom = 170` and scrolls it into view; focusing inside `editor_panel` aligns `editor_panel` to `LV_ALIGN_TOP_MID` (`y = 2`) above the 160px keyboard. `LV_EVENT_READY`, `LV_EVENT_CANCEL`, and `LV_EVENT_DEFOCUSED` restore padding/alignment and hide the keyboard.
 - **Settings Sections (Scrollable Flex Column):**
   - **Metrics Config:** IP, Path, **Save**.
-  - **Saved Networks + Async Scan / Connect:** **Scan** triggers `NetworkManager::startWifiScan()` + spinner list; **Connect** uses async Core-0 `requestConnect()` + spinner.
+  - **Saved Networks + Async Scan / Connect:** **Scan** opens `Scan WiFi` modal (`270×195`) with top-right **Rescan** (`LV_SYMBOL_REFRESH`) beside `"X"`, triggering Core-0 `NetworkManager::startWifiScan()` and spinning until `classifyWifiScanStatus()` leaves `RUNNING`. `FAILED` displays `"Scan failed. Tap Rescan."`, `READY` renders tappable SSID/RSSI rows or `"No networks found"`. **Connect** uses async Core-0 `requestConnect()` + spinner.
   - **Appearance & Touch:** Theme dropdown, **Red Touch Dot** switch (`true` default), **Reset TS Calib** (instant default rotation without reboot), **Calibrate Touch** (reboot wizard).
   - **Alerts & Tariff:** `Vmin`, `Vmax`, `Imax`, `Tariff` numeric inputs + **Save Limits** + **Reset Session**.
   - **Auto-Dim:** Dropdown (`Off`, `1 min`, `2 min`, `5 min`, `10 min` mapped to `{0, 60, 120, 300, 600}` seconds).

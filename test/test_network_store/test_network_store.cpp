@@ -71,6 +71,44 @@ void test_build_metrics_url_normalization(void) {
     TEST_ASSERT_EQUAL_STRING("https://sensor.local/v1/prom", buildMetricsUrl("https://sensor.local", "/v1/prom").c_str());
 }
 
+void test_normalize_scan_results_dedup_empty_and_sort(void) {
+    std::vector<ScannedWifiInfo> raw = {
+        {"", -40, false},
+        {"HomeNet", -72, true},
+        {"BetaNet", -55, false},
+        {"HomeNet", -50, false},
+        {"AlphaNet", -55, true},
+        {"WeakNet", -88, true}
+    };
+
+    std::vector<ScannedWifiInfo> norm = normalizeScanResults(raw);
+    TEST_ASSERT_EQUAL_UINT32(4, static_cast<uint32_t>(norm.size()));
+    TEST_ASSERT_EQUAL_STRING("HomeNet", norm[0].ssid.c_str());
+    TEST_ASSERT_EQUAL_INT32(-50, norm[0].rssi);
+    TEST_ASSERT_FALSE(norm[0].encrypted);
+
+    // Equal RSSI sorted alphabetically
+    TEST_ASSERT_EQUAL_STRING("AlphaNet", norm[1].ssid.c_str());
+    TEST_ASSERT_EQUAL_INT32(-55, norm[1].rssi);
+    TEST_ASSERT_EQUAL_STRING("BetaNet", norm[2].ssid.c_str());
+    TEST_ASSERT_EQUAL_INT32(-55, norm[2].rssi);
+    TEST_ASSERT_EQUAL_STRING("WeakNet", norm[3].ssid.c_str());
+    TEST_ASSERT_EQUAL_INT32(-88, norm[3].rssi);
+}
+
+void test_classify_wifi_scan_status(void) {
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiScanUiState::RUNNING),
+                          static_cast<int>(classifyWifiScanStatus(-1)));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiScanUiState::FAILED),
+                          static_cast<int>(classifyWifiScanStatus(-2)));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiScanUiState::FAILED),
+                          static_cast<int>(classifyWifiScanStatus(-10)));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiScanUiState::READY),
+                          static_cast<int>(classifyWifiScanStatus(0)));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiScanUiState::READY),
+                          static_cast<int>(classifyWifiScanStatus(5)));
+}
+
 int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
@@ -79,5 +117,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_add_update_promotes_index_zero_and_deduplicates);
     RUN_TEST(test_delete_wifi_credential_bounds);
     RUN_TEST(test_build_metrics_url_normalization);
+    RUN_TEST(test_normalize_scan_results_dedup_empty_and_sort);
+    RUN_TEST(test_classify_wifi_scan_status);
     return UNITY_END();
 }
