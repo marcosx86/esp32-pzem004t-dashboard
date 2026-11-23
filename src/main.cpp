@@ -3,6 +3,7 @@
 #include "Display_LGFX.h"
 #include "CST820.h"
 #include "Touch_Calibrator.h"
+#include "Touch_Math.h"
 #include "Network_Manager.h"
 #include "Dashboard_UI.h"
 #include <Preferences.h>
@@ -76,23 +77,12 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
     {
         data->state = LV_INDEV_STATE_PR;
 
-        // Apply affine transformation calibration to raw touch coordinates
-        int16_t calibrated_x, calibrated_y;
-        if (touch_calibrated) {
-            calibrated_x = (int16_t)(cal_A * touchX + cal_B * touchY + cal_C);
-            calibrated_y = (int16_t)(cal_D * touchX + cal_E * touchY + cal_F);
-        } else {
-            // Default mapping assuming 90-degree clockwise landscape rotation
-            calibrated_x = (int16_t)touchY;
-            calibrated_y = (int16_t)(240 - touchX);
-        }
+        // Apply affine transformation calibration (or default rotation) and clamp to screen bounds
+        int16_t calibrated_x = 0;
+        int16_t calibrated_y = 0;
+        TouchCalibration cal{cal_A, cal_B, cal_C, cal_D, cal_E, cal_F, touch_calibrated};
+        applyTouchCalibration(cal, touchX, touchY, TFT_WIDTH, TFT_HEIGHT, calibrated_x, calibrated_y);
 
-        // Constrain coordinates to screen boundaries
-        if (calibrated_x < 0) calibrated_x = 0;
-        if (calibrated_x >= TFT_WIDTH) calibrated_x = TFT_WIDTH - 1;
-        if (calibrated_y < 0) calibrated_y = 0;
-        if (calibrated_y >= TFT_HEIGHT) calibrated_y = TFT_HEIGHT - 1;
-        
         data->point.x = calibrated_x;
         data->point.y = calibrated_y;
 

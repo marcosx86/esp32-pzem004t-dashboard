@@ -58,3 +58,8 @@ cmake-build-release/
 # Misc editor configs
 .editorconfig
 .clang-format
+
+# Coverage outputs
+*.gcda
+*.gcno
+coverage/
