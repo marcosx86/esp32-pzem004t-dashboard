@@ -1,5 +1,7 @@
 #include "UI_Logic.h"
 
+#include <cmath>
+
 namespace {
 
 const UiThemePalette kPrimitivePalette = {
@@ -33,6 +35,8 @@ const UiThemePalette kDarkHighContrastPalette = {
     0x243040,
     0x3A4A5E
 };
+
+const int kAutoDimSecondsTable[] = {0, 60, 120, 300, 600};
 
 } // namespace
 
@@ -94,4 +98,169 @@ int rssiToSignalBars(bool wifi_connected, int32_t rssi_dbm) {
         return 3;
     }
     return 4;
+}
+
+size_t scaleSamplesToChart(const double *src,
+                           size_t count,
+                           int16_t *dst,
+                           size_t max_len,
+                           int16_t y_min,
+                           int16_t y_max) {
+    if (!src || !dst || count == 0 || max_len == 0 || y_max < y_min) {
+        return 0;
+    }
+
+    size_t start_idx = (count > max_len) ? (count - max_len) : 0;
+    bool has_valid = false;
+    double min_v = 0.0;
+    double max_v = 0.0;
+
+    for (size_t i = start_idx; i < count; ++i) {
+        double v = src[i];
+        if (!std::isfinite(v)) {
+            continue;
+        }
+        if (!has_valid) {
+            min_v = v;
+            max_v = v;
+            has_valid = true;
+        } else {
+            if (v < min_v) min_v = v;
+            if (v > max_v) max_v = v;
+        }
+    }
+
+    if (!has_valid) {
+        return 0;
+    }
+
+    double range = max_v - min_v;
+    int16_t mid = static_cast<int16_t>((static_cast<int32_t>(y_min) + static_cast<int32_t>(y_max)) / 2);
+    double pad = range * 0.05;
+    double lo = min_v - pad;
+    double hi = max_v + pad;
+    double span = hi - lo;
+
+    size_t out_cnt = 0;
+    for (size_t i = start_idx; i < count; ++i) {
+        double v = src[i];
+        if (!std::isfinite(v)) {
+            continue;
+        }
+        if (range < 1e-9 || span <= 0.0) {
+            dst[out_cnt++] = mid;
+        } else {
+            double norm = (v - lo) / span;
+            double scaled = static_cast<double>(y_min) + norm * static_cast<double>(y_max - y_min);
+            long rounded = std::lround(scaled);
+            if (rounded < y_min) rounded = y_min;
+            if (rounded > y_max) rounded = y_max;
+            dst[out_cnt++] = static_cast<int16_t>(rounded);
+        }
+    }
+
+    return out_cnt;
+}
+
+uint32_t getAlertBorderColor(AlertLevel level, uint32_t normal_border_color) {
+    switch (level) {
+        case AlertLevel::WARN:
+            return 0xF1C40F;
+        case AlertLevel::CRIT:
+            return 0xFF2D2D;
+        case AlertLevel::OK:
+        default:
+            return normal_border_color;
+    }
+}
+
+int getAlertBorderWidth(AlertLevel level, int normal_width) {
+    switch (level) {
+        case AlertLevel::WARN:
+            return 4;
+        case AlertLevel::CRIT:
+            return 5;
+        case AlertLevel::OK:
+        default:
+            return normal_width;
+    }
+}
+
+int autodimIndexToSeconds(int dropdown_index) {
+    if (dropdown_index < 0 ||
+        dropdown_index >= static_cast<int>(sizeof(kAutoDimSecondsTable) / sizeof(kAutoDimSecondsTable[0]))) {
+        return 0;
+    }
+    return kAutoDimSecondsTable[dropdown_index];
+}
+
+int autodimSecondsToIndex(int seconds) {
+    if (seconds <= 0) return 0;
+    if (seconds <= 60) return 1;
+    if (seconds <= 120) return 2;
+    if (seconds <= 300) return 3;
+    return 4;
+}
+
+AutoDimController::AutoDimController()
+    : dimmed_(false), absorbing_wake_touch_(false), last_activity_ms_(0) {}
+
+void AutoDimController::init(uint32_t now_ms) {
+    dimmed_ = false;
+    absorbing_wake_touch_ = false;
+    last_activity_ms_ = now_ms;
+}
+
+void AutoDimController::resetActivity(uint32_t now_ms) {
+    last_activity_ms_ = now_ms;
+}
+
+bool AutoDimController::isDimmed() const {
+    return dimmed_;
+}
+
+bool AutoDimController::isAbsorbingWakeTouch() const {
+    return absorbing_wake_touch_;
+}
+
+bool AutoDimController::onTouchSample(bool touched, uint32_t now_ms, bool &out_wake_triggered) {
+    out_wake_triggered = false;
+
+    if (absorbing_wake_touch_) {
+        last_activity_ms_ = now_ms;
+        if (touched) {
+            return false;
+        }
+        absorbing_wake_touch_ = false;
+        return true;
+    }
+
+    if (dimmed_) {
+        if (touched) {
+            dimmed_ = false;
+            absorbing_wake_touch_ = true;
+            last_activity_ms_ = now_ms;
+            out_wake_triggered = true;
+            return false;
+        }
+        return true;
+    }
+
+    if (touched) {
+        last_activity_ms_ = now_ms;
+    }
+    return true;
+}
+
+bool AutoDimController::checkTimeout(uint32_t now_ms, int timeout_sec) {
+    if (timeout_sec <= 0 || dimmed_ || absorbing_wake_touch_) {
+        return false;
+    }
+
+    uint32_t timeout_ms = static_cast<uint32_t>(timeout_sec) * 1000u;
+    if (static_cast<uint32_t>(now_ms - last_activity_ms_) >= timeout_ms) {
+        dimmed_ = true;
+        return true;
+    }
+    return false;
 }

@@ -21,10 +21,15 @@ namespace DashboardUI {
     // Query live red touch dot visibility setting
     bool isTouchCursorEnabled();
 
-    // Show the WiFi/Appearance/Touch settings overlay
+    // Active backlight brightness and Auto-Dim settings for main loop / wake restore
+    int getActiveBrightness();
+    int getAutoDimTimeoutSec();
+    int getAutoDimLevel();
+
+    // Show the WiFi/Appearance/Touch/Alerts settings overlay
     void showSettingsScreen();
 
-    // Update dashboard card and ambient telemetry values
+    // Update dashboard card, alert borders, session cost, and ambient telemetry values
     void update(const MetricsData &data);
 
     // Update top-left floating HUD freshness dot & Wi-Fi bars from Core-0 diagnostics

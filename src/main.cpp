@@ -4,6 +4,7 @@
 #include "CST820.h"
 #include "Touch_Calibrator.h"
 #include "Touch_Math.h"
+#include "UI_Logic.h"
 #include "Network_Manager.h"
 #include "Dashboard_UI.h"
 #include <Preferences.h>
@@ -37,6 +38,7 @@ static bool touch_calibrated = false;
 
 static lv_disp_draw_buf_t draw_buf;
 lv_indev_t *myInputDevice;
+static AutoDimController auto_dim;
 
 #ifdef GFX
 /*
@@ -66,7 +68,13 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
 
     touched = touch.getTouch(&touchX, &touchY, &gesture);
 
-    if (!touched)
+    bool wake_triggered = false;
+    bool forward_touch = auto_dim.onTouchSample(touched, millis(), wake_triggered);
+    if (wake_triggered) {
+        tft.setBrightness(DashboardUI::getActiveBrightness());
+    }
+
+    if (!forward_touch || !touched)
     {
         data->state = LV_INDEV_STATE_REL;
         if (DashboardUI::touch_cursor) {
@@ -193,6 +201,7 @@ void setup()
         resetTouchCalibration(cal_A, cal_B, cal_C, cal_D, cal_E, cal_F, touch_calibrated);
     });
     DashboardUI::init(TFT_WIDTH, TFT_HEIGHT);
+    auto_dim.init(millis());
 
     // Setup update timer
     auto update_timer_cb = [](lv_timer_t *t){
@@ -202,6 +211,9 @@ void setup()
             DashboardUI::update(m);
         }
         DashboardUI::updateDiagnostics(NetworkManager::getDiagnostics());
+        if (auto_dim.checkTimeout(millis(), DashboardUI::getAutoDimTimeoutSec())) {
+            tft.setBrightness(DashboardUI::getAutoDimLevel());
+        }
     };
     lv_timer_create(update_timer_cb, 1000, NULL);
 #endif

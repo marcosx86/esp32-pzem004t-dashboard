@@ -3,6 +3,7 @@
 #include "Display_LGFX.h"
 #include <Preferences.h>
 #include <cmath>
+#include <cstdlib>
 
 namespace DashboardUI {
     // Global touch cursor pointer
@@ -11,6 +12,14 @@ namespace DashboardUI {
     // Theme & runtime settings state
     static NetworkManager::AppSettings app_settings;
     static TouchResetCallback touch_reset_cb = NULL;
+    static int active_brightness = 128;
+
+    // Last telemetry & alert state
+    static MetricsData last_metrics = makeEmptyMetrics();
+    static bool has_last_metrics = false;
+    static AlertLevel card_alert[4] = {
+        AlertLevel::OK, AlertLevel::OK, AlertLevel::OK, AlertLevel::OK
+    };
 
     // Dashboard cards
     static lv_obj_t *card_obj[4] = {NULL, NULL, NULL, NULL};
@@ -28,10 +37,16 @@ namespace DashboardUI {
     // Diagnostics popup
     static lv_obj_t *diag_overlay = NULL;
 
-    // Zoom modal
+    // Zoom modal & sparkline chart
     static int zoom_card_index = -1;
     static lv_obj_t *zoom_overlay = NULL;
     static lv_obj_t *zoom_detail = NULL;
+    static lv_obj_t *zoom_title_label = NULL;
+    static lv_obj_t *zoom_value_label = NULL;
+    static lv_obj_t *zoom_chart = NULL;
+    static lv_chart_series_t *zoom_series = NULL;
+    static lv_obj_t *zoom_stats_label = NULL;
+    static lv_obj_t *zoom_session_label = NULL;
 
     // Settings modal & tracked themed children
     static lv_obj_t *settings_content = NULL;
@@ -42,6 +57,18 @@ namespace DashboardUI {
     static lv_obj_t *appearance_section_label = NULL;
     static lv_obj_t *theme_row_label = NULL;
     static lv_obj_t *cursor_row_label = NULL;
+    static lv_obj_t *alerts_section_label = NULL;
+    static lv_obj_t *vmin_row_label = NULL;
+    static lv_obj_t *vmax_row_label = NULL;
+    static lv_obj_t *imax_row_label = NULL;
+    static lv_obj_t *tariff_row_label = NULL;
+    static lv_obj_t *autodim_row_label = NULL;
+
+    // Alerts & Tariff textareas
+    static lv_obj_t *alert_vmin_ta = NULL;
+    static lv_obj_t *alert_vmax_ta = NULL;
+    static lv_obj_t *alert_imax_ta = NULL;
+    static lv_obj_t *tariff_ta = NULL;
 
     // Wi-Fi Editor UI
     static lv_obj_t *editor_panel = NULL;
@@ -91,6 +118,8 @@ namespace DashboardUI {
     // Forward declarations
     static void zoom_in(int card_idx);
     static void zoom_out();
+    static void refresh_zoom_view();
+    static void apply_card_alert_styles();
     static void apply_theme(int theme_id);
     static void refresh_settings_list();
     static void close_connect_overlay();
@@ -115,6 +144,18 @@ namespace DashboardUI {
             cur = lv_obj_get_parent(cur);
         }
         return false;
+    }
+
+    static float parse_nonneg_float(const char *txt, float fallback) {
+        if (!txt || txt[0] == '\0') {
+            return fallback;
+        }
+        char *end_ptr = nullptr;
+        float val = std::strtof(txt, &end_ptr);
+        if (end_ptr == txt || !std::isfinite(val)) {
+            return fallback;
+        }
+        return (val < 0.0f) ? 0.0f : val;
     }
 
     static void hide_keyboard_and_restore() {
@@ -156,7 +197,6 @@ namespace DashboardUI {
             lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
 
             if (editor_panel && is_child_of(ta, editor_panel)) {
-                // Lift editor panel into the top 80px band above the 160px keyboard
                 lv_obj_align(editor_panel, LV_ALIGN_TOP_MID, 0, 2);
             } else if (settings_content && is_child_of(ta, settings_content)) {
                 lv_obj_set_style_pad_bottom(settings_content, 170, 0);
@@ -165,6 +205,18 @@ namespace DashboardUI {
         } else if (code == LV_EVENT_DEFOCUSED || code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
             if (keyboard && lv_keyboard_get_textarea(keyboard) == ta) {
                 hide_keyboard_and_restore();
+            }
+        }
+    }
+
+    static void apply_card_alert_styles() {
+        const UiThemePalette &p = getThemePalette(app_settings.theme);
+        for (int i = 0; i < 4; ++i) {
+            if (card_obj[i]) {
+                lv_obj_set_style_border_color(
+                    card_obj[i], lv_color_hex(getAlertBorderColor(card_alert[i], p.card_border[i])), 0);
+                lv_obj_set_style_border_width(
+                    card_obj[i], getAlertBorderWidth(card_alert[i], p.card_border_width), 0);
             }
         }
     }
@@ -179,8 +231,6 @@ namespace DashboardUI {
         for (int i = 0; i < 4; ++i) {
             if (card_obj[i]) {
                 lv_obj_set_style_bg_color(card_obj[i], lv_color_hex(p.card_bg[i]), 0);
-                lv_obj_set_style_border_color(card_obj[i], lv_color_hex(p.card_border[i]), 0);
-                lv_obj_set_style_border_width(card_obj[i], p.card_border_width, 0);
             }
             if (card_title[i]) {
                 lv_obj_set_style_text_color(card_title[i], lv_color_hex(p.card_title[i]), 0);
@@ -192,6 +242,7 @@ namespace DashboardUI {
                 lv_obj_set_style_text_color(card_sub[i], lv_color_hex(p.card_sub), 0);
             }
         }
+        apply_card_alert_styles();
 
         if (hud_status_btn) {
             lv_obj_set_style_bg_color(hud_status_btn, lv_color_hex(p.hud_pill_bg), 0);
@@ -209,6 +260,22 @@ namespace DashboardUI {
         if (zoom_detail && zoom_card_index >= 0 && zoom_card_index < 4) {
             lv_obj_set_style_bg_color(zoom_detail, lv_color_hex(p.card_bg[zoom_card_index]), 0);
             lv_obj_set_style_border_color(zoom_detail, lv_color_hex(p.card_border[zoom_card_index]), 0);
+            if (zoom_title_label) {
+                lv_obj_set_style_text_color(zoom_title_label, lv_color_hex(p.card_title[zoom_card_index]), 0);
+            }
+            if (zoom_value_label) {
+                lv_obj_set_style_text_color(zoom_value_label, lv_color_hex(p.card_value), 0);
+            }
+            if (zoom_stats_label) {
+                lv_obj_set_style_text_color(zoom_stats_label, lv_color_hex(p.card_value), 0);
+            }
+            if (zoom_session_label) {
+                lv_obj_set_style_text_color(zoom_session_label, lv_color_hex(p.card_value), 0);
+            }
+            if (zoom_chart && zoom_series) {
+                uint32_t ser_col = (app_settings.theme == 0) ? 0xFFFFFF : p.card_title[zoom_card_index];
+                lv_chart_set_series_color(zoom_chart, zoom_series, lv_color_hex(ser_col));
+            }
         }
 
         if (settings_content) {
@@ -219,7 +286,13 @@ namespace DashboardUI {
                 saved_nets_label,
                 appearance_section_label,
                 theme_row_label,
-                cursor_row_label
+                cursor_row_label,
+                alerts_section_label,
+                vmin_row_label,
+                vmax_row_label,
+                imax_row_label,
+                tariff_row_label,
+                autodim_row_label
             };
             for (lv_obj_t *lbl : text_labels) {
                 if (lbl) {
@@ -255,6 +328,73 @@ namespace DashboardUI {
         }
     }
 
+    static void refresh_zoom_view() {
+        if (!zoom_detail || zoom_card_index < 0 || zoom_card_index >= 4) {
+            return;
+        }
+
+        if (zoom_value_label && card_value[zoom_card_index]) {
+            lv_label_set_text(zoom_value_label, lv_label_get_text(card_value[zoom_card_index]));
+        }
+
+        MetricsHistory hist;
+        if (zoom_chart && zoom_series && NetworkManager::getMetricsHistory(hist)) {
+            const MetricRingBuffer *rb = &hist.voltage;
+            int prec = 1;
+            if (zoom_card_index == 1) {
+                rb = &hist.current;
+                prec = 2;
+            } else if (zoom_card_index == 2) {
+                rb = &hist.energy;
+                prec = 2;
+            } else if (zoom_card_index == 3) {
+                rb = &hist.wattage;
+                prec = 1;
+            }
+
+            double raw_buf[kMetricsHistorySize];
+            size_t count = rb->copyOrdered(raw_buf, kMetricsHistorySize);
+
+            int16_t scaled[kMetricsHistorySize];
+            size_t scaled_cnt = scaleSamplesToChart(raw_buf, count, scaled, kMetricsHistorySize, 0, 1000);
+
+            lv_chart_set_all_value(zoom_chart, zoom_series, LV_CHART_POINT_NONE);
+            for (size_t i = 0; i < scaled_cnt; ++i) {
+                lv_chart_set_value_by_id(zoom_chart, zoom_series, static_cast<uint16_t>(i), scaled[i]);
+            }
+            lv_chart_refresh(zoom_chart);
+
+            if (zoom_stats_label) {
+                MetricStats st = rb->computeStats();
+                if (st.count > 0 && std::isfinite(st.min_val)) {
+                    String stats_str = "Min: " + String(st.min_val, prec) +
+                                       "  Avg: " + String(st.avg_val, prec) +
+                                       "  Max: " + String(st.max_val, prec);
+                    lv_label_set_text(zoom_stats_label, stats_str.c_str());
+                } else {
+                    lv_label_set_text(zoom_stats_label, "Collecting samples...");
+                }
+            }
+        }
+
+        if (zoom_card_index == 2 && zoom_session_label) {
+            if (has_last_metrics && std::isfinite(last_metrics.energy)) {
+                SessionEnergyInfo sinfo = computeSessionEnergy(
+                    last_metrics.energy,
+                    NetworkManager::getSessionEnergyBaseline(),
+                    last_metrics.wattage,
+                    app_settings.tariff);
+                String s = "S: " + String(sinfo.session_kwh, 2) + " kWh";
+                if (app_settings.tariff > 0.0f) {
+                    s += " ($" + String(sinfo.session_cost, 2) + ", " + String(sinfo.hourly_cost, 2) + "/h)";
+                }
+                lv_label_set_text(zoom_session_label, s.c_str());
+            } else {
+                lv_label_set_text(zoom_session_label, "Session: --");
+            }
+        }
+    }
+
     static void zoom_in(int card_idx) {
         if (zoom_card_index != -1) zoom_out();
 
@@ -265,7 +405,7 @@ namespace DashboardUI {
         lv_obj_set_size(zoom_overlay, screen_width, screen_height);
         lv_obj_set_align(zoom_overlay, LV_ALIGN_CENTER);
         lv_obj_set_style_bg_color(zoom_overlay, lv_color_black(), 0);
-        lv_obj_set_style_bg_opa(zoom_overlay, LV_OPA_50, 0);
+        lv_obj_set_style_bg_opa(zoom_overlay, LV_OPA_60, 0);
         lv_obj_set_style_border_width(zoom_overlay, 0, 0);
         lv_obj_set_style_radius(zoom_overlay, 0, 0);
         lv_obj_add_flag(zoom_overlay, LV_OBJ_FLAG_CLICKABLE);
@@ -276,38 +416,96 @@ namespace DashboardUI {
         }, LV_EVENT_CLICKED, NULL);
 
         zoom_detail = lv_obj_create(zoom_overlay);
-        lv_obj_set_size(zoom_detail, screen_width - 40, screen_height - 110);
+        lv_obj_set_size(zoom_detail, 296, 206);
         lv_obj_set_align(zoom_detail, LV_ALIGN_CENTER);
         lv_obj_set_style_radius(zoom_detail, 12, 0);
         lv_obj_set_style_border_width(zoom_detail, 3, 0);
         lv_obj_set_style_border_color(zoom_detail, lv_color_hex(p.card_border[card_idx]), 0);
-        lv_obj_set_style_pad_all(zoom_detail, 10, 0);
+        lv_obj_set_style_pad_all(zoom_detail, 8, 0);
         lv_obj_set_scrollbar_mode(zoom_detail, LV_SCROLLBAR_MODE_OFF);
         lv_obj_set_style_bg_color(zoom_detail, lv_color_hex(p.card_bg[card_idx]), 0);
         lv_obj_set_style_bg_opa(zoom_detail, LV_OPA_COVER, 0);
 
-        lv_obj_t *title = lv_label_create(zoom_detail);
+        zoom_title_label = lv_label_create(zoom_detail);
         static const char* titles[] = {"Voltage (V)", "Current (A)", "Energy (kWh)", "Power (W)"};
-        lv_label_set_text(title, titles[card_idx]);
-        lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
-        lv_obj_set_style_text_color(title, lv_color_hex(p.card_title[card_idx]), 0);
-        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 5);
+        lv_label_set_text(zoom_title_label, titles[card_idx]);
+        lv_obj_set_style_text_font(zoom_title_label, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_color(zoom_title_label, lv_color_hex(p.card_title[card_idx]), 0);
+        lv_obj_align(zoom_title_label, LV_ALIGN_TOP_LEFT, 2, 2);
 
-        lv_obj_t *detail_value = lv_label_create(zoom_detail);
-        const char *current_val = lv_label_get_text(card_value[card_idx]);
-        lv_label_set_text(detail_value, current_val);
-        lv_obj_set_style_text_font(detail_value, &lv_font_montserrat_44, 0);
-        lv_obj_set_style_text_color(detail_value, lv_color_hex(p.card_value), 0);
-        lv_obj_align(detail_value, LV_ALIGN_CENTER, 0, 15);
-
-        lv_obj_set_user_data(zoom_detail, detail_value);
-
-        lv_obj_add_flag(zoom_detail, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(zoom_detail, [](lv_event_t * e) {
-            if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-                zoom_out();
-            }
+        lv_obj_t *close_btn = lv_btn_create(zoom_detail);
+        lv_obj_set_size(close_btn, 30, 26);
+        lv_obj_align(close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
+        lv_obj_add_event_cb(close_btn, [](lv_event_t * e) {
+            (void)e;
+            zoom_out();
         }, LV_EVENT_CLICKED, NULL);
+        lv_obj_t *close_lbl = lv_label_create(close_btn);
+        lv_label_set_text(close_lbl, "X");
+        lv_obj_center(close_lbl);
+
+        zoom_value_label = lv_label_create(zoom_detail);
+        lv_label_set_text(zoom_value_label, card_value[card_idx] ? lv_label_get_text(card_value[card_idx]) : "--");
+        lv_obj_set_style_text_font(zoom_value_label, &lv_font_montserrat_32, 0);
+        lv_obj_set_style_text_color(zoom_value_label, lv_color_hex(p.card_value), 0);
+        lv_obj_align(zoom_value_label, LV_ALIGN_TOP_MID, 0, 24);
+
+        zoom_chart = lv_chart_create(zoom_detail);
+        lv_coord_t chart_h = (card_idx == 2) ? 58 : 74;
+        lv_obj_set_size(zoom_chart, 268, chart_h);
+        lv_obj_align(zoom_chart, LV_ALIGN_TOP_MID, 0, 62);
+        lv_chart_set_type(zoom_chart, LV_CHART_TYPE_LINE);
+        lv_chart_set_point_count(zoom_chart, kMetricsHistorySize);
+        lv_chart_set_range(zoom_chart, LV_CHART_AXIS_PRIMARY_Y, 0, 1000);
+        lv_chart_set_div_line_count(zoom_chart, 3, 0);
+        lv_obj_set_style_pad_all(zoom_chart, 4, 0);
+        lv_obj_set_style_radius(zoom_chart, 6, 0);
+        lv_obj_set_style_border_width(zoom_chart, 1, 0);
+        lv_obj_set_style_border_color(zoom_chart, lv_color_hex(0x555555), 0);
+        if (app_settings.theme == 0) {
+            lv_obj_set_style_bg_color(zoom_chart, lv_color_black(), 0);
+            lv_obj_set_style_bg_opa(zoom_chart, LV_OPA_20, 0);
+        } else {
+            lv_obj_set_style_bg_color(zoom_chart, lv_color_hex(0x0D1117), 0);
+            lv_obj_set_style_bg_opa(zoom_chart, LV_OPA_60, 0);
+        }
+        lv_obj_set_style_size(zoom_chart, 0, LV_PART_INDICATOR);
+        lv_obj_set_style_line_width(zoom_chart, 2, LV_PART_ITEMS);
+
+        uint32_t ser_col = (app_settings.theme == 0) ? 0xFFFFFF : p.card_title[card_idx];
+        zoom_series = lv_chart_add_series(zoom_chart, lv_color_hex(ser_col), LV_CHART_AXIS_PRIMARY_Y);
+
+        zoom_stats_label = lv_label_create(zoom_detail);
+        lv_label_set_text(zoom_stats_label, "Collecting samples...");
+        lv_obj_set_style_text_font(zoom_stats_label, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(zoom_stats_label, lv_color_hex(p.card_value), 0);
+        lv_obj_align(zoom_stats_label, LV_ALIGN_TOP_MID, 0, (card_idx == 2) ? 124 : 144);
+
+        if (card_idx == 2) {
+            zoom_session_label = lv_label_create(zoom_detail);
+            lv_label_set_text(zoom_session_label, "Session: --");
+            lv_obj_set_style_text_font(zoom_session_label, &lv_font_montserrat_14, 0);
+            lv_obj_set_style_text_color(zoom_session_label, lv_color_hex(p.card_value), 0);
+            lv_obj_align(zoom_session_label, LV_ALIGN_BOTTOM_LEFT, 2, -4);
+
+            lv_obj_t *reset_btn = lv_btn_create(zoom_detail);
+            lv_obj_set_size(reset_btn, 68, 26);
+            lv_obj_align(reset_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+            lv_obj_add_event_cb(reset_btn, [](lv_event_t * e) {
+                (void)e;
+                NetworkManager::resetSessionEnergyBaseline();
+                if (has_last_metrics) {
+                    update(last_metrics);
+                } else {
+                    refresh_zoom_view();
+                }
+            }, LV_EVENT_CLICKED, NULL);
+            lv_obj_t *reset_lbl = lv_label_create(reset_btn);
+            lv_label_set_text(reset_lbl, "Reset");
+            lv_obj_center(reset_lbl);
+        }
+
+        refresh_zoom_view();
     }
 
     static void zoom_out() {
@@ -315,6 +513,12 @@ namespace DashboardUI {
             lv_obj_del(zoom_overlay);
             zoom_overlay = NULL;
             zoom_detail = NULL;
+            zoom_title_label = NULL;
+            zoom_value_label = NULL;
+            zoom_chart = NULL;
+            zoom_series = NULL;
+            zoom_stats_label = NULL;
+            zoom_session_label = NULL;
         }
         zoom_card_index = -1;
     }
@@ -688,7 +892,7 @@ namespace DashboardUI {
         (void)t;
         int status = NetworkManager::getWifiScanStatus();
         if (status == -1) {
-            return; // WIFI_SCAN_RUNNING
+            return;
         }
 
         if (scan_poll_timer) {
@@ -834,9 +1038,40 @@ namespace DashboardUI {
             appearance_section_label = NULL;
             theme_row_label = NULL;
             cursor_row_label = NULL;
+            alerts_section_label = NULL;
+            vmin_row_label = NULL;
+            vmax_row_label = NULL;
+            imax_row_label = NULL;
+            tariff_row_label = NULL;
+            autodim_row_label = NULL;
             metrics_ip_ta = NULL;
             metrics_path_ta = NULL;
+            alert_vmin_ta = NULL;
+            alert_vmax_ta = NULL;
+            alert_imax_ta = NULL;
+            tariff_ta = NULL;
         }
+    }
+
+    static lv_obj_t* create_transparent_row(lv_obj_t *parent, lv_coord_t height) {
+        lv_obj_t *row = lv_obj_create(parent);
+        lv_obj_set_size(row, lv_pct(100), height);
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_set_style_pad_all(row, 0, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        return row;
+    }
+
+    static lv_obj_t* create_numeric_input(lv_obj_t *parent, lv_coord_t width, const String &val_text) {
+        lv_obj_t *ta = lv_textarea_create(parent);
+        lv_textarea_set_one_line(ta, true);
+        lv_obj_set_size(ta, width, 32);
+        lv_textarea_set_text(ta, val_text.c_str());
+        tag_textarea_kind(ta, InputFieldKind::NUMERIC_IP);
+        lv_obj_add_event_cb(ta, textarea_event_cb, LV_EVENT_ALL, NULL);
+        lv_obj_set_scrollbar_mode(ta, LV_SCROLLBAR_MODE_OFF);
+        return ta;
     }
 
     void showSettingsScreen() {
@@ -860,12 +1095,7 @@ namespace DashboardUI {
         lv_obj_set_flex_align(settings_content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
         // 1. Header Row
-        lv_obj_t *header_row = lv_obj_create(settings_content);
-        lv_obj_set_size(header_row, lv_pct(100), 30);
-        lv_obj_set_style_bg_opa(header_row, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(header_row, 0, 0);
-        lv_obj_set_style_pad_all(header_row, 0, 0);
-        lv_obj_clear_flag(header_row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *header_row = create_transparent_row(settings_content, 30);
 
         settings_title_label = lv_label_create(header_row);
         lv_label_set_text(settings_title_label, "Settings");
@@ -886,23 +1116,12 @@ namespace DashboardUI {
         lv_label_set_text(metrics_section_label, "Metrics Config:");
         lv_obj_set_style_text_color(metrics_section_label, lv_color_hex(p.settings_text), 0);
 
-        lv_obj_t *metrics_row = lv_obj_create(settings_content);
-        lv_obj_set_size(metrics_row, lv_pct(100), 34);
-        lv_obj_set_style_bg_opa(metrics_row, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(metrics_row, 0, 0);
-        lv_obj_set_style_pad_all(metrics_row, 0, 0);
+        lv_obj_t *metrics_row = create_transparent_row(settings_content, 34);
         lv_obj_set_flex_flow(metrics_row, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(metrics_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_clear_flag(metrics_row, LV_OBJ_FLAG_SCROLLABLE);
 
-        metrics_ip_ta = lv_textarea_create(metrics_row);
-        lv_textarea_set_one_line(metrics_ip_ta, true);
+        metrics_ip_ta = create_numeric_input(metrics_row, 124, NetworkManager::getMetricsIP());
         lv_textarea_set_placeholder_text(metrics_ip_ta, "IP");
-        lv_obj_set_size(metrics_ip_ta, 124, 32);
-        lv_textarea_set_text(metrics_ip_ta, NetworkManager::getMetricsIP().c_str());
-        tag_textarea_kind(metrics_ip_ta, InputFieldKind::NUMERIC_IP);
-        lv_obj_add_event_cb(metrics_ip_ta, textarea_event_cb, LV_EVENT_ALL, NULL);
-        lv_obj_set_scrollbar_mode(metrics_ip_ta, LV_SCROLLBAR_MODE_OFF);
 
         metrics_path_ta = lv_textarea_create(metrics_row);
         lv_textarea_set_one_line(metrics_path_ta, true);
@@ -933,12 +1152,7 @@ namespace DashboardUI {
         lv_obj_center(m_save_lbl);
 
         // 3. Saved Networks Header + List
-        lv_obj_t *nets_hdr_row = lv_obj_create(settings_content);
-        lv_obj_set_size(nets_hdr_row, lv_pct(100), 30);
-        lv_obj_set_style_bg_opa(nets_hdr_row, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(nets_hdr_row, 0, 0);
-        lv_obj_set_style_pad_all(nets_hdr_row, 0, 0);
-        lv_obj_clear_flag(nets_hdr_row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *nets_hdr_row = create_transparent_row(settings_content, 30);
 
         saved_nets_label = lv_label_create(nets_hdr_row);
         lv_label_set_text(saved_nets_label, "Saved Networks:");
@@ -983,12 +1197,7 @@ namespace DashboardUI {
         lv_label_set_text(appearance_section_label, "Appearance & Touch:");
         lv_obj_set_style_text_color(appearance_section_label, lv_color_hex(p.settings_text), 0);
 
-        lv_obj_t *theme_row = lv_obj_create(settings_content);
-        lv_obj_set_size(theme_row, lv_pct(100), 36);
-        lv_obj_set_style_bg_opa(theme_row, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(theme_row, 0, 0);
-        lv_obj_set_style_pad_all(theme_row, 0, 0);
-        lv_obj_clear_flag(theme_row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *theme_row = create_transparent_row(settings_content, 36);
 
         theme_row_label = lv_label_create(theme_row);
         lv_label_set_text(theme_row_label, "Theme:");
@@ -1008,12 +1217,7 @@ namespace DashboardUI {
             NetworkManager::saveAppSettings(app_settings);
         }, LV_EVENT_VALUE_CHANGED, NULL);
 
-        lv_obj_t *cursor_row = lv_obj_create(settings_content);
-        lv_obj_set_size(cursor_row, lv_pct(100), 32);
-        lv_obj_set_style_bg_opa(cursor_row, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(cursor_row, 0, 0);
-        lv_obj_set_style_pad_all(cursor_row, 0, 0);
-        lv_obj_clear_flag(cursor_row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *cursor_row = create_transparent_row(settings_content, 32);
 
         cursor_row_label = lv_label_create(cursor_row);
         lv_label_set_text(cursor_row_label, "Red Touch Dot:");
@@ -1036,14 +1240,9 @@ namespace DashboardUI {
             NetworkManager::saveAppSettings(app_settings);
         }, LV_EVENT_VALUE_CHANGED, NULL);
 
-        lv_obj_t *calib_row = lv_obj_create(settings_content);
-        lv_obj_set_size(calib_row, lv_pct(100), 32);
-        lv_obj_set_style_bg_opa(calib_row, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(calib_row, 0, 0);
-        lv_obj_set_style_pad_all(calib_row, 0, 0);
+        lv_obj_t *calib_row = create_transparent_row(settings_content, 32);
         lv_obj_set_flex_flow(calib_row, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(calib_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_clear_flag(calib_row, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t *reset_cal_btn = lv_btn_create(calib_row);
         lv_obj_set_size(reset_cal_btn, 140, 30);
@@ -1069,6 +1268,108 @@ namespace DashboardUI {
         lv_obj_t *calib_lbl = lv_label_create(calib_btn);
         lv_label_set_text(calib_lbl, "Calibrate Touch");
         lv_obj_center(calib_lbl);
+
+        // 5. Alerts & Tariff Section
+        alerts_section_label = lv_label_create(settings_content);
+        lv_label_set_text(alerts_section_label, "Alerts & Tariff:");
+        lv_obj_set_style_text_color(alerts_section_label, lv_color_hex(p.settings_text), 0);
+
+        lv_obj_t *volt_row = create_transparent_row(settings_content, 34);
+        lv_obj_set_flex_flow(volt_row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(volt_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+        vmin_row_label = lv_label_create(volt_row);
+        lv_label_set_text(vmin_row_label, "Vmin:");
+        lv_obj_set_style_text_color(vmin_row_label, lv_color_hex(p.settings_text), 0);
+        alert_vmin_ta = create_numeric_input(volt_row, 74, String(app_settings.alerts.voltage_min, 1));
+
+        vmax_row_label = lv_label_create(volt_row);
+        lv_label_set_text(vmax_row_label, "Vmax:");
+        lv_obj_set_style_text_color(vmax_row_label, lv_color_hex(p.settings_text), 0);
+        alert_vmax_ta = create_numeric_input(volt_row, 74, String(app_settings.alerts.voltage_max, 1));
+
+        lv_obj_t *cur_tariff_row = create_transparent_row(settings_content, 34);
+        lv_obj_set_flex_flow(cur_tariff_row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(cur_tariff_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+        imax_row_label = lv_label_create(cur_tariff_row);
+        lv_label_set_text(imax_row_label, "Imax:");
+        lv_obj_set_style_text_color(imax_row_label, lv_color_hex(p.settings_text), 0);
+        alert_imax_ta = create_numeric_input(cur_tariff_row, 74, String(app_settings.alerts.current_max, 1));
+
+        tariff_row_label = lv_label_create(cur_tariff_row);
+        lv_label_set_text(tariff_row_label, "Tariff:");
+        lv_obj_set_style_text_color(tariff_row_label, lv_color_hex(p.settings_text), 0);
+        tariff_ta = create_numeric_input(cur_tariff_row, 74, String(app_settings.tariff, 2));
+
+        lv_obj_t *alert_btns_row = create_transparent_row(settings_content, 32);
+        lv_obj_set_flex_flow(alert_btns_row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(alert_btns_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+        lv_obj_t *save_alerts_btn = lv_btn_create(alert_btns_row);
+        lv_obj_set_size(save_alerts_btn, 144, 30);
+        lv_obj_add_event_cb(save_alerts_btn, [](lv_event_t * e) {
+            (void)e;
+            if (!alert_vmin_ta || !alert_vmax_ta || !alert_imax_ta || !tariff_ta) return;
+            app_settings.alerts.voltage_min = parse_nonneg_float(
+                lv_textarea_get_text(alert_vmin_ta), app_settings.alerts.voltage_min);
+            app_settings.alerts.voltage_max = parse_nonneg_float(
+                lv_textarea_get_text(alert_vmax_ta), app_settings.alerts.voltage_max);
+            app_settings.alerts.current_max = parse_nonneg_float(
+                lv_textarea_get_text(alert_imax_ta), app_settings.alerts.current_max);
+            app_settings.tariff = parse_nonneg_float(
+                lv_textarea_get_text(tariff_ta), app_settings.tariff);
+
+            NetworkManager::saveAppSettings(app_settings);
+            hide_keyboard_and_restore();
+            if (has_last_metrics) {
+                update(last_metrics);
+            }
+            static const char * btns[] = {""};
+            lv_obj_t * mbox = lv_msgbox_create(settings_content, "Saved", "Alerts & tariff saved.", btns, true);
+            lv_obj_center(mbox);
+        }, LV_EVENT_CLICKED, NULL);
+        lv_obj_t *save_alerts_lbl = lv_label_create(save_alerts_btn);
+        lv_label_set_text(save_alerts_lbl, "Save Limits");
+        lv_obj_center(save_alerts_lbl);
+
+        lv_obj_t *reset_sess_btn = lv_btn_create(alert_btns_row);
+        lv_obj_set_size(reset_sess_btn, 144, 30);
+        lv_obj_add_event_cb(reset_sess_btn, [](lv_event_t * e) {
+            (void)e;
+            NetworkManager::resetSessionEnergyBaseline();
+            if (has_last_metrics) {
+                update(last_metrics);
+            }
+            static const char * btns[] = {""};
+            lv_obj_t * mbox = lv_msgbox_create(settings_content, "Reset", "Session energy reset.", btns, true);
+            lv_obj_center(mbox);
+        }, LV_EVENT_CLICKED, NULL);
+        lv_obj_t *reset_sess_lbl = lv_label_create(reset_sess_btn);
+        lv_label_set_text(reset_sess_lbl, "Reset Session");
+        lv_obj_center(reset_sess_lbl);
+
+        // 6. Auto-Dim Section
+        lv_obj_t *autodim_row = create_transparent_row(settings_content, 36);
+
+        autodim_row_label = lv_label_create(autodim_row);
+        lv_label_set_text(autodim_row_label, "Auto-Dim:");
+        lv_obj_set_style_text_color(autodim_row_label, lv_color_hex(p.settings_text), 0);
+        lv_obj_align(autodim_row_label, LV_ALIGN_LEFT_MID, 0, 0);
+
+        lv_obj_t *autodim_dd = lv_dropdown_create(autodim_row);
+        lv_dropdown_set_options(autodim_dd, "Off\n1 min\n2 min\n5 min\n10 min");
+        lv_dropdown_set_selected(
+            autodim_dd, static_cast<uint16_t>(autodimSecondsToIndex(app_settings.autodim_sec)));
+        lv_obj_set_size(autodim_dd, 150, 34);
+        lv_obj_align(autodim_dd, LV_ALIGN_RIGHT_MID, 0, 0);
+        lv_obj_add_event_cb(autodim_dd, [](lv_event_t * e) {
+            if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+            lv_obj_t *dd = lv_event_get_target(e);
+            int sel = static_cast<int>(lv_dropdown_get_selected(dd));
+            app_settings.autodim_sec = autodimIndexToSeconds(sel);
+            NetworkManager::saveAppSettings(app_settings);
+        }, LV_EVENT_VALUE_CHANGED, NULL);
     }
 
     static void show_brightness_slider() {
@@ -1098,7 +1399,7 @@ namespace DashboardUI {
             initial_brightness_val = prefs.getInt("brightness", 128);
             prefs.end();
         } else {
-            initial_brightness_val = 128;
+            initial_brightness_val = active_brightness;
         }
         lv_slider_set_value(slider, initial_brightness_val, LV_ANIM_OFF);
 
@@ -1125,6 +1426,7 @@ namespace DashboardUI {
         lv_obj_add_event_cb(close_btn, [](lv_event_t * e) {
             lv_obj_t * slider_obj = (lv_obj_t *)lv_event_get_user_data(e);
             int v = lv_slider_get_value(slider_obj);
+            active_brightness = v;
 
             Preferences p;
             if (p.begin("settings", false)) {
@@ -1149,10 +1451,30 @@ namespace DashboardUI {
         return app_settings.touch_cursor;
     }
 
+    int getActiveBrightness() {
+        return active_brightness;
+    }
+
+    int getAutoDimTimeoutSec() {
+        return app_settings.autodim_sec;
+    }
+
+    int getAutoDimLevel() {
+        return app_settings.autodim_level;
+    }
+
     void init(uint16_t tft_width, uint16_t tft_height) {
         screen_width = tft_width;
         screen_height = tft_height;
         app_settings = NetworkManager::loadAppSettings();
+
+        Preferences prefs;
+        if (prefs.begin("settings", true)) {
+            active_brightness = prefs.getInt("brightness", 128);
+            prefs.end();
+        } else {
+            active_brightness = 128;
+        }
 
         // Global persistent keyboard on top layer (160px height preserved for adult fingers)
         keyboard = lv_keyboard_create(lv_layer_top());
@@ -1195,13 +1517,10 @@ namespace DashboardUI {
             lv_obj_set_style_text_font(v, &lv_font_montserrat_22, 0);
             lv_obj_align(v, LV_ALIGN_CENTER, 0, 2);
 
-            lv_obj_t *sub = NULL;
-            if (idx == 0 || idx == 3) {
-                sub = lv_label_create(c);
-                lv_label_set_text(sub, "");
-                lv_obj_set_style_text_font(sub, &lv_font_montserrat_14, 0);
-                lv_obj_align(sub, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-            }
+            lv_obj_t *sub = lv_label_create(c);
+            lv_label_set_text(sub, "");
+            lv_obj_set_style_text_font(sub, &lv_font_montserrat_14, 0);
+            lv_obj_align(sub, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
             lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(c, card_event_cb, LV_EVENT_CLICKED, NULL);
@@ -1221,7 +1540,6 @@ namespace DashboardUI {
         // Floating Top-50px HUD (renders over top edges without reserving card space)
         lv_obj_t *hud_layer = lv_scr_act();
 
-        // Top-Left: Freshness Dot + Wi-Fi Bars Pill (tappable for diagnostics)
         hud_status_btn = lv_btn_create(hud_layer);
         lv_obj_set_size(hud_status_btn, 90, 36);
         lv_obj_align(hud_status_btn, LV_ALIGN_TOP_LEFT, 4, 6);
@@ -1251,7 +1569,6 @@ namespace DashboardUI {
         lv_label_set_text(hud_wifi_label, LV_SYMBOL_WIFI " Off");
         lv_obj_set_style_text_font(hud_wifi_label, &lv_font_montserrat_14, 0);
 
-        // Top-Center: Ambient DHT22 Temperature & Humidity Pill
         hud_ambient_pill = lv_obj_create(hud_layer);
         lv_obj_set_size(hud_ambient_pill, LV_SIZE_CONTENT, 32);
         lv_obj_align(hud_ambient_pill, LV_ALIGN_TOP_MID, 3, 8);
@@ -1264,11 +1581,10 @@ namespace DashboardUI {
         lv_obj_clear_flag(hud_ambient_pill, LV_OBJ_FLAG_CLICKABLE);
 
         hud_ambient_label = lv_label_create(hud_ambient_pill);
-        lv_label_set_text(hud_ambient_label, "--\xC2\xB0C \xE2\x80\xA2 --%");
+        lv_label_set_text(hud_ambient_label, "--\xC2\xB0" "C \xE2\x80\xA2 --%");
         lv_obj_set_style_text_font(hud_ambient_label, &lv_font_montserrat_14, 0);
         lv_obj_center(hud_ambient_label);
 
-        // Top-Right: Brightness & Settings Buttons
         lv_obj_t *brightness_button = lv_btn_create(hud_layer);
         lv_obj_set_size(brightness_button, 40, 40);
         lv_obj_set_style_radius(brightness_button, 20, 0);
@@ -1299,6 +1615,15 @@ namespace DashboardUI {
     }
 
     void update(const MetricsData &data) {
+        last_metrics = data;
+        has_last_metrics = true;
+
+        card_alert[0] = evaluateVoltageAlert(data.voltage, app_settings.alerts);
+        card_alert[1] = evaluateCurrentAlert(data.current, app_settings.alerts);
+        card_alert[2] = AlertLevel::OK;
+        card_alert[3] = evaluatePowerAlert(data.wattage, data.voltage, app_settings.alerts);
+        apply_card_alert_styles();
+
         if (std::isfinite(data.voltage)) {
             String s = String(data.voltage, 2) + " V";
             lv_label_set_text(card_value[0], s.c_str());
@@ -1307,12 +1632,18 @@ namespace DashboardUI {
         }
 
         if (card_sub[0]) {
-            if (std::isfinite(data.frequency)) {
-                String s = String(data.frequency, 1) + " Hz";
-                lv_label_set_text(card_sub[0], s.c_str());
-            } else {
-                lv_label_set_text(card_sub[0], "");
+            String v_sub = std::isfinite(data.frequency) ? (String(data.frequency, 1) + " Hz") : String("");
+            String alert_tag;
+            if (card_alert[0] == AlertLevel::CRIT) {
+                alert_tag = (app_settings.alerts.voltage_min > 0.0f && data.voltage < app_settings.alerts.voltage_min)
+                    ? "LOW" : "HIGH";
+            } else if (card_alert[0] == AlertLevel::WARN) {
+                alert_tag = "WARN";
             }
+            if (alert_tag.length() > 0) {
+                v_sub = (v_sub.length() > 0) ? (v_sub + " " + alert_tag) : alert_tag;
+            }
+            lv_label_set_text(card_sub[0], v_sub.c_str());
         }
 
         if (std::isfinite(data.current)) {
@@ -1322,11 +1653,38 @@ namespace DashboardUI {
             lv_label_set_text(card_value[1], "--");
         }
 
+        if (card_sub[1]) {
+            if (card_alert[1] == AlertLevel::CRIT) {
+                lv_label_set_text(card_sub[1], "OVER");
+            } else if (card_alert[1] == AlertLevel::WARN) {
+                lv_label_set_text(card_sub[1], "WARN");
+            } else {
+                lv_label_set_text(card_sub[1], "");
+            }
+        }
+
         if (std::isfinite(data.energy)) {
             String s = String(data.energy, 2) + " kWh";
             lv_label_set_text(card_value[2], s.c_str());
         } else {
             lv_label_set_text(card_value[2], "--");
+        }
+
+        if (card_sub[2]) {
+            if (std::isfinite(data.energy)) {
+                SessionEnergyInfo sinfo = computeSessionEnergy(
+                    data.energy,
+                    NetworkManager::getSessionEnergyBaseline(),
+                    data.wattage,
+                    app_settings.tariff);
+                String e_sub = "S:" + String(sinfo.session_kwh, 2);
+                if (app_settings.tariff > 0.0f) {
+                    e_sub += " ($" + String(sinfo.session_cost, 2) + ")";
+                }
+                lv_label_set_text(card_sub[2], e_sub.c_str());
+            } else {
+                lv_label_set_text(card_sub[2], "");
+            }
         }
 
         if (std::isfinite(data.wattage)) {
@@ -1337,12 +1695,13 @@ namespace DashboardUI {
         }
 
         if (card_sub[3]) {
-            if (std::isfinite(data.power_factor)) {
-                String s = "PF " + String(data.power_factor, 2);
-                lv_label_set_text(card_sub[3], s.c_str());
-            } else {
-                lv_label_set_text(card_sub[3], "");
+            String p_sub = std::isfinite(data.power_factor) ? ("PF " + String(data.power_factor, 2)) : String("");
+            if (card_alert[3] == AlertLevel::CRIT) {
+                p_sub = (p_sub.length() > 0) ? (p_sub + " OVER") : String("OVER");
+            } else if (card_alert[3] == AlertLevel::WARN) {
+                p_sub = (p_sub.length() > 0) ? (p_sub + " WARN") : String("WARN");
             }
+            lv_label_set_text(card_sub[3], p_sub.c_str());
         }
 
         if (hud_ambient_label) {
@@ -1350,16 +1709,13 @@ namespace DashboardUI {
             String h_str = std::isfinite(data.humidity) ? String(data.humidity, 0) : String("--");
             lv_label_set_text_fmt(
                 hud_ambient_label,
-                "%s\xC2\xB0C \xE2\x80\xA2 %s%%",
+                "%s\xC2\xB0" "C \xE2\x80\xA2 %s%%",
                 t_str.c_str(),
                 h_str.c_str());
         }
 
         if (zoom_detail && zoom_card_index >= 0) {
-            lv_obj_t *detail_val = (lv_obj_t*)lv_obj_get_user_data(zoom_detail);
-            if (detail_val) {
-                lv_label_set_text(detail_val, lv_label_get_text(card_value[zoom_card_index]));
-            }
+            refresh_zoom_view();
         }
     }
 

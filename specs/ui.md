@@ -1,10 +1,10 @@
 # Dashboard UI & Ergonomics Specification (`320×240` Landscape)
 
-> **Rollout Note:** Floating Top-50px HUD, Multi-Theme (**Primitive** & **Dark High Contrast**), Async Wi-Fi Scan + Connect Spinner, Custom Numeric/IP Keyboard + Scroll-Into-View, Red Touch Dot Toggle, **Reset TS Calib**, and Clean Boot are **Active (Milestone 2)**. Zoom `lv_chart` sparklines, alert highlights, session cost UI, and auto-dim target **Milestone 3**.
+> **Rollout Note:** All Milestones 1–3 UI capabilities are **Active**: Top-50px Floating HUD, Multi-Theme (**Primitive** & **Dark High Contrast**), Async Wi-Fi Scan + Connect Spinner, Custom Numeric/IP Keyboard + Scroll-Into-View, Red Touch Dot Toggle, **Reset TS Calib**, Clean Boot, Zoom `lv_chart` Sparklines + `Min / Avg / Max` + Session Reset, Threshold Alert Highlights, and Auto-Dim with Wake-Touch Absorption.
 
 ---
 
-## 1. Ergonomic Layout & Top-50px Floating HUD *(Active — Milestone 2)*
+## 1. Ergonomic Layout & Top-50px Floating HUD *(Active)*
 
 To preserve maximum touch area for an adult finger on a `320×240` panel, **no fixed/reserved top bar space is deducted from the 2×2 metric cards**. All HUD elements float inside the top `50px` band (`y = 4..44`):
 
@@ -17,19 +17,22 @@ To preserve maximum touch area for an adult finger on a `320×240` panel, **no f
 
 ---
 
-## 2. Dashboard Cards & Secondary Telemetry
+## 2. Dashboard Cards, Secondary Telemetry & Alert Feedback *(Active)*
 
-- **2×2 Card Grid:** `Voltage (V)`, `Current (A)`, `Energy (kWh)`, `Power (W)` keeping full usable touch height (`card_w = (320 - 24)/2`, `card_h = (240 - 24)/2 * 0.80f`).
+- **2×2 Card Grid:** `Voltage (V)`, `Current (A)`, `Energy (kWh)`, `Power (W)` keeping full usable touch height (`card_w = (320 - 24)/2`, `card_h = (240 - 24)/2 * 0.80f`), each with a bottom-right sub-label (`lv_font_montserrat_14`).
 - **Before First Valid Sample:** Cards display `--` (never `0.00`).
-- **Secondary Sub-Labels *(Active — Milestone 2)*:**
-  - `Voltage` card displays grid frequency (`60.0 Hz`) at bottom-right (`lv_font_montserrat_14`).
-  - `Power` card displays power factor (`PF 0.95`) at bottom-right (`lv_font_montserrat_14`).
-  - *(Milestone 3)* `Energy` card displays session kWh / cost when `tariff > 0`.
-- **Alert Visual Feedback *(Milestone 3)*:** Cards evaluate `AlertLevel` (`OK`, `WARN`, `CRIT`) against configured `alert_vmin` (`95 V`), `alert_vmax` (`127 V`), `alert_imax` (`10 A`), and dynamic power (`V * 10 A`), tinting card borders/badges amber (`WARN`) or red (`CRIT`).
+- **Secondary Sub-Labels:**
+  - `Voltage`: grid frequency (`60.0 Hz`) + `" WARN"` / `" LOW"` / `" HIGH"` when alerted.
+  - `Current`: `"WARN"` / `"OVER"` when alerted.
+  - `Energy`: computes `SessionEnergyInfo` from `NetworkManager::getSessionEnergyBaseline()` and `app_settings.tariff`; displays `"S:<kwh>"` (plus `" ($<cost>)"` when `tariff > 0`).
+  - `Power`: power factor (`PF 0.95`) + `" WARN"` / `" OVER"` when alerted.
+- **Alert Visual Feedback (`getAlertBorderColor` / `getAlertBorderWidth`):**
+  - Cards evaluate `AlertLevel` (`OK`, `WARN`, `CRIT`) against configured `alert_vmin` (`95 V`), `alert_vmax` (`127 V`), `alert_imax` (`10 A`), and dynamic power (`V * 10 A`).
+  - `WARN` sets border `#F1C40F` (`4px`); `CRIT` sets border `#FF2D2D` (`5px`); `OK` restores theme border color & width.
 
 ---
 
-## 3. Multi-Theme Support *(Active — Milestone 2)*
+## 3. Multi-Theme Support *(Active)*
 
 Defined in `UI_Logic` (`UiThemePalette`) and persisted via `settings/theme` (`normalizeThemeId` coerces invalid IDs to `0`):
 
@@ -49,35 +52,35 @@ Selecting a theme in Settings applies styles immediately to the dashboard, HUD p
 
 ---
 
-## 4. Zoom Modal with Sparklines *(Milestone 3)*
+## 4. Zoom Modal with Sparklines & Session Reset *(Active)*
 
-- *(Milestone 2)* Zoom modal reflects active theme colors (`card_bg`, `card_border`, `card_title`, `card_value`) and updates live.
-- *(Milestone 3)* Requires `#define LV_USE_CHART 1` in `include/lv_conf.h`. Tapping any card shows `lv_chart` sparkline (`MetricsHistory` 60 samples), `Min / Avg / Max`, and **Reset Session** on Energy.
+- Enabled via `#define LV_USE_CHART 1` in `include/lv_conf.h`.
+- Tapping any dashboard card opens a `296×206` centered modal containing:
+  - Top header with metric title and `"X"` close button (`30×26`), plus backdrop click-out.
+  - Enlarged live numeric reading + unit (`zoom_value_label`, Montserrat 32).
+  - `lv_chart` line sparkline (`268×74`, or `268×58` on Energy) with `60` points scaled to `0..1000` via `scaleSamplesToChart()` (`5%` vertical margin).
+  - `Min / Avg / Max` stats line from `MetricRingBuffer::computeStats()`.
+  - **Energy card only:** Session summary (`S:<kwh>`, plus cost & hourly rate when `tariff > 0`) and **Reset** button (`68×26`) invoking `NetworkManager::resetSessionEnergyBaseline()`.
 
 ---
 
-## 5. Settings Modal, Keyboard, Async Wi-Fi & Touch Controls *(Active — Milestone 2)*
+## 5. Settings Modal, Keyboard, Async Wi-Fi, Alerts & Auto-Dim *(Active)*
 
 - **Keyboard Dimensions (Preserved):** Global `lv_keyboard` on `lv_layer_top()` keeps `width = 320`, `height = 160` (`screen_height / 2 + 40`) at ~75% opacity (`191`) for adult-finger usability.
 - **Custom IP/Numeric Keymap & Scroll-Into-View:**
   - `LV_KEYBOARD_MODE_USER_1` registers a 4×4 grid (`1, 2, 3, Backspace / 4, 5, 6, : / 7, 8, 9, . / abc, 0, Keyboard-hide, OK`).
-  - Focusing `metrics_ip_ta` (`InputFieldKind::NUMERIC_IP`) selects `LV_KEYBOARD_MODE_USER_1`; text inputs (`InputFieldKind::TEXT`) select `LV_KEYBOARD_MODE_TEXT_LOWER`.
-  - Focusing an input inside `settings_content` expands `pad_bottom = 170` and scrolls it into view; focusing inside `editor_panel` aligns `editor_panel` to `LV_ALIGN_TOP_MID` (`y = 4`) above the 160px keyboard. `LV_EVENT_READY`, `LV_EVENT_CANCEL`, and `LV_EVENT_DEFOCUSED` restore padding/alignment and hide the keyboard.
+  - Focusing `metrics_ip_ta` or numeric Alerts/Tariff textareas (`InputFieldKind::NUMERIC_IP`) selects `LV_KEYBOARD_MODE_USER_1`; text inputs (`InputFieldKind::TEXT`) select `LV_KEYBOARD_MODE_TEXT_LOWER`.
+  - Focusing an input inside `settings_content` expands `pad_bottom = 170` and scrolls it into view; focusing inside `editor_panel` aligns `editor_panel` to `LV_ALIGN_TOP_MID` (`y = 2`) above the 160px keyboard. `LV_EVENT_READY`, `LV_EVENT_CANCEL`, and `LV_EVENT_DEFOCUSED` restore padding/alignment and hide the keyboard.
 - **Settings Sections (Scrollable Flex Column):**
   - **Metrics Config:** IP, Path, **Save**.
-  - **Saved Networks + Async Scan / Connect:**
-    - **Scan:** Opens `Scan WiFi` modal (`270×195`) triggering `NetworkManager::startWifiScan()`, spinning while `getWifiScanStatus() < 0`, listing SSID + RSSI + lock indicator; tapping an entry opens `Add Network` pre-filled with that SSID.
-    - **Add / Edit -> Connect:** Calls `NetworkManager::requestConnect()` on Core 0 while showing a non-blocking `lv_spinner` overlay (`"Connecting..."`) polled by a `200 ms` `lv_timer`; all timers are cancelled cleanly if Settings/editor closes early.
-  - **Appearance & Touch:**
-    - **Theme** dropdown (`Primitive`, `Dark High Contrast`).
-    - **Red Touch Dot** switch (`true` by default, hides/shows `touch_cursor` immediately and persists to NVS).
-    - **Reset TS Calib** button (invokes `TouchResetCallback` -> `resetTouchCalibration()`, instant default rotation without reboot + confirmation msgbox).
-    - **Calibrate Touch** button (calls `triggerTouchCalibration()`, reboot wizard).
-  - **Alerts, Tariff & Auto-Dim *(Milestone 3)*:** Editable `V min`, `V max`, `I max`, `Tariff (/kWh)`, and `Auto-Dim` timeout.
+  - **Saved Networks + Async Scan / Connect:** **Scan** triggers `NetworkManager::startWifiScan()` + spinner list; **Connect** uses async Core-0 `requestConnect()` + spinner.
+  - **Appearance & Touch:** Theme dropdown, **Red Touch Dot** switch (`true` default), **Reset TS Calib** (instant default rotation without reboot), **Calibrate Touch** (reboot wizard).
+  - **Alerts & Tariff:** `Vmin`, `Vmax`, `Imax`, `Tariff` numeric inputs + **Save Limits** + **Reset Session**.
+  - **Auto-Dim:** Dropdown (`Off`, `1 min`, `2 min`, `5 min`, `10 min` mapped to `{0, 60, 120, 300, 600}` seconds).
 
 ---
 
-## 6. Clean Boot & Inactivity Auto-Dim
+## 6. Clean Boot & Inactivity Auto-Dim *(Active)*
 
-- **Clean Boot *(Active — Milestone 2)*:** No synchronous RGB screen-flash delay during `setup()`; dashboard initializes immediately while Core 0 connects asynchronously.
-- **Auto-Dim Wake Absorption *(Milestone 3)*:** Drops brightness after `autodim_sec`; first touch restores brightness and absorbs that tap.
+- **Clean Boot:** No synchronous RGB screen-flash delay during `setup()`; dashboard initializes immediately while Core 0 connects asynchronously.
+- **Auto-Dim Wake Absorption (`AutoDimController`):** When `autodim_sec > 0` elapses without touch, PWM brightness drops to `autodim_level` (`15`). The first touch restores `DashboardUI::getActiveBrightness()` immediately and absorbs that press until finger release (`LV_INDEV_STATE_REL`) so no card or button triggers accidentally.

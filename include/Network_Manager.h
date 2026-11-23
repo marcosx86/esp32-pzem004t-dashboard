@@ -87,6 +87,7 @@ namespace NetworkManager {
     // Application settings & session baseline NVS persistence
     AppSettings loadAppSettings();
     void saveAppSettings(const AppSettings &settings);
+    double getSessionEnergyBaseline();
     void resetSessionEnergyBaseline();
 
     // Check if the background fetch task failed recently

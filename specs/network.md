@@ -49,6 +49,7 @@
 ### Diagnostics (`NetworkDiagnostics`)
 Exposes thread-safe snapshot for HUD & Settings:
 - `wifi_connected` (`bool`), `rssi_dbm` (`int32_t`), `ssid` (`String`), `ip` (`String`), `has_valid_metrics` (`bool`), `fetch_failed` (`bool`), `last_http_code` (`int`), `last_success_ms` (`uint32_t`), `connect_state` (`ConnectState`).
+- `getSessionEnergyBaseline()`: thread-safely returns `cached_settings.session_kwh_base` (`double`, `NAN` if uninitialized) for Core 1 UI session delta calculation. `saveAppSettings()` preserves an already-initialized finite baseline if the incoming struct carries `NAN`.
 
 ---
 

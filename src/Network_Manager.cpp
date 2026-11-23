@@ -530,26 +530,44 @@ namespace NetworkManager {
     }
 
     void saveAppSettings(const AppSettings &settings) {
+        AppSettings to_save = settings;
         if (metrics_mutex && xSemaphoreTake(metrics_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-            cached_settings = settings;
+            if (!std::isfinite(to_save.session_kwh_base) && std::isfinite(cached_settings.session_kwh_base)) {
+                to_save.session_kwh_base = cached_settings.session_kwh_base;
+            }
+            cached_settings = to_save;
             xSemaphoreGive(metrics_mutex);
         } else {
-            cached_settings = settings;
+            if (!std::isfinite(to_save.session_kwh_base) && std::isfinite(cached_settings.session_kwh_base)) {
+                to_save.session_kwh_base = cached_settings.session_kwh_base;
+            }
+            cached_settings = to_save;
         }
 
         Preferences prefs;
         if (prefs.begin(kSettingsNamespace, false)) {
-            prefs.putInt("theme", settings.theme);
-            prefs.putBool("touch_cursor", settings.touch_cursor);
-            prefs.putInt("autodim_sec", settings.autodim_sec);
-            prefs.putInt("autodim_lvl", settings.autodim_level);
-            prefs.putFloat("alert_vmin", settings.alerts.voltage_min);
-            prefs.putFloat("alert_vmax", settings.alerts.voltage_max);
-            prefs.putFloat("alert_imax", settings.alerts.current_max);
-            prefs.putFloat("tariff", settings.tariff);
-            prefs.putDouble("session_base", settings.session_kwh_base);
+            prefs.putInt("theme", to_save.theme);
+            prefs.putBool("touch_cursor", to_save.touch_cursor);
+            prefs.putInt("autodim_sec", to_save.autodim_sec);
+            prefs.putInt("autodim_lvl", to_save.autodim_level);
+            prefs.putFloat("alert_vmin", to_save.alerts.voltage_min);
+            prefs.putFloat("alert_vmax", to_save.alerts.voltage_max);
+            prefs.putFloat("alert_imax", to_save.alerts.current_max);
+            prefs.putFloat("tariff", to_save.tariff);
+            prefs.putDouble("session_base", to_save.session_kwh_base);
             prefs.end();
         }
+    }
+
+    double getSessionEnergyBaseline() {
+        double base = NAN;
+        if (metrics_mutex && xSemaphoreTake(metrics_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+            base = cached_settings.session_kwh_base;
+            xSemaphoreGive(metrics_mutex);
+        } else {
+            base = cached_settings.session_kwh_base;
+        }
+        return base;
     }
 
     void resetSessionEnergyBaseline() {
